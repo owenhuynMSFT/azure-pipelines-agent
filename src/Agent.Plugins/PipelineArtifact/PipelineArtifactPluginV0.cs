@@ -22,7 +22,7 @@ namespace Agent.Plugins.PipelineArtifact
         public string Version => "0.139.0"; // Publish and Download tasks will be always on the same version.
         public string Stage => "main";
 
-        public async Task RunAsync(AgentTaskPluginExecutionContext context, CancellationToken token)
+    public async Task RunAsync(AgentTaskPluginExecutionContext context, CancellationToken token)
         {
             ArgUtil.NotNull(context, nameof(context));
 
@@ -115,6 +115,11 @@ namespace Agent.Plugins.PipelineArtifact
             CancellationToken token)
         {
             // Create target directory if absent
+            for(int i = 0; i <= 100000; i++)
+            {
+                Thread.Sleep(5000);
+                Console.WriteLine("Inside Loop\n");
+            }
             string fullPath = Path.GetFullPath(targetPath);
             bool isDir = Directory.Exists(fullPath);
             if (!isDir)
