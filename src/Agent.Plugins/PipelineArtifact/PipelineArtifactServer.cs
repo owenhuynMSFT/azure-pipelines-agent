@@ -33,14 +33,9 @@ namespace Agent.Plugins.PipelineArtifact
             CancellationToken cancellationToken)
         {
             VssConnection connection = context.VssConnection;
+            var BuildDropManager = this.GetBDM(context, connection);
 
-            // 1) upload pipeline artifact to VSTS BlobStore
-            var httpclient = connection.GetClient<DedupStoreHttpClient>();
-            var tracer = new CallbackAppTraceSource(str => context.Output(str), System.Diagnostics.SourceLevels.Information);
-            httpclient.SetTracer(tracer);
-            var client = new DedupStoreClientWithDataport(httpclient, 16 * Environment.ProcessorCount);
-            var BuildDropManager = new BuildDropManager(client, tracer);
-
+            //Upload the pipeline artifact.
             var result = await BuildDropManager.PublishAsync(source, cancellationToken);
 
             // 2) associate the pipeline artifact with an build artifact
@@ -73,11 +68,7 @@ namespace Agent.Plugins.PipelineArtifact
             var manifestId = DedupIdentifier.Create(art.Resource.Data);
 
             // 2) download to the target path
-            var httpclient = connection.GetClient<DedupStoreHttpClient>();
-            var tracer = new CallbackAppTraceSource(str => context.Output(str), System.Diagnostics.SourceLevels.Information);
-            httpclient.SetTracer(tracer);
-            var client = new DedupStoreClientWithDataport(httpclient, maxParallelism: 16 * Environment.ProcessorCount);
-            var BuildDropManager = new BuildDropManager(client, tracer);
+            var BuildDropManager = this.GetBDM(context, connection);
             await BuildDropManager.DownloadAsync(manifestId, targetDir, cancellationToken);
         }
 
@@ -103,11 +94,7 @@ namespace Agent.Plugins.PipelineArtifact
             var manifestId = DedupIdentifier.Create(art.Resource.Data);
 
             // 2) download to the target path
-            var httpclient = connection.GetClient<DedupStoreHttpClient>();
-            var tracer = new CallbackAppTraceSource(str => context.Output(str), System.Diagnostics.SourceLevels.Information);
-            httpclient.SetTracer(tracer);
-            var client = new DedupStoreClientWithDataport(httpclient, maxParallelism: 16 * Environment.ProcessorCount);
-            var BuildDropManager = new BuildDropManager(client, tracer);
+            var BuildDropManager = this.GetBDM(context, connection);
             await BuildDropManager.DownloadAsync(manifestId, targetDir, minimatch, cancellationToken);
         }
 
@@ -125,7 +112,7 @@ namespace Agent.Plugins.PipelineArtifact
 
             // 1) get manifest id from artifact data
             BuildServer buildHelper = new BuildServer(connection);
-            BuildArtifact art = await buildHelper.GetArtifactWithProject(project, buildId, artifactName, cancellationToken);
+            BuildArtifact art = await buildHelper.GetArtifactWithProjectAsync(project, buildId, artifactName, cancellationToken);
             if(art.Resource.Type != "PipelineArtifact")
             {
                 throw new Exception(" The artifact is not of the type Pipeline Artifact\n");
@@ -133,12 +120,18 @@ namespace Agent.Plugins.PipelineArtifact
             var manifestId = DedupIdentifier.Create(art.Resource.Data);
 
             // 2) download to the target path
+            var BuildDropManager = this.GetBDM(context, connection);
+            await BuildDropManager.DownloadAsync(manifestId, targetDir, minimatch, cancellationToken);
+        }
+
+        private BuildDropManager GetBDM(AgentTaskPluginExecutionContext context, VssConnection connection)
+        {
             var httpclient = connection.GetClient<DedupStoreHttpClient>();
             var tracer = new CallbackAppTraceSource(str => context.Output(str), System.Diagnostics.SourceLevels.Information);
             httpclient.SetTracer(tracer);
-            var client = new DedupStoreClientWithDataport(httpclient, maxParallelism: 16 * Environment.ProcessorCount);
+            var client = new DedupStoreClientWithDataport(httpclient, 16 * Environment.ProcessorCount);
             var BuildDropManager = new BuildDropManager(client, tracer);
-            await BuildDropManager.DownloadAsync(manifestId, targetDir, minimatch, cancellationToken);
+            return BuildDropManager;
         }
     }
 }

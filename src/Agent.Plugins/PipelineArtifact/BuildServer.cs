@@ -56,7 +56,7 @@ namespace Agent.Plugins.PipelineArtifact
         }
 
         //Get artifact with project name.
-        public async Task<BuildArtifact> GetArtifactWithProject(
+        public async Task<BuildArtifact> GetArtifactWithProjectAsync(
             string project,
             int buildId,
             string name,

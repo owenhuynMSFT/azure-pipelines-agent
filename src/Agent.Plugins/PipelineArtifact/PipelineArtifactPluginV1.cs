@@ -22,9 +22,9 @@ namespace Agent.Plugins.PipelineArtifact
         public string Version => "1.0.0"; // Publish and Download tasks will be always on the same version.
         public string Stage => "main";
 
-        public async Task RunAsync(AgentTaskPluginExecutionContext context, CancellationToken token)
+        public Task RunAsync(AgentTaskPluginExecutionContext context, CancellationToken token)
         {
-            await this.ProcessCommandInternalAsync(context, token);
+            return this.ProcessCommandInternalAsync(context, token);
         }
 
         // Process the command with preprocessed arguments.
@@ -72,7 +72,7 @@ namespace Agent.Plugins.PipelineArtifact
             string artifactName = context.GetInput(ArtifactEventProperties.ArtifactName, required: true);
             string itemPattern = context.GetInput(ArtifactEventProperties.ItemPattern, required: false);
             string downloadPath = context.GetInput(ArtifactEventProperties.DownloadPath, required: true);
-            string buildIdStr = context.Variables.GetValueOrDefault(BuildVariables.BuildId)?.Value ?? string.Empty; // BuildID provided my environment.
+            string buildIdStr = context.Variables.GetValueOrDefault(BuildVariables.BuildId)?.Value ?? string.Empty; // BuildID provided by environment.
             string guidStr = string.Empty;
 
             // Minimatch patterns.
@@ -118,65 +118,88 @@ namespace Agent.Plugins.PipelineArtifact
                         // This should not happen since the build id comes from build environment. But a user may override that so we must be careful.
                         throw new ArgumentException(StringUtil.Loc("BuildIdIsNotValid", buildIdStr));
                     }
-                } 
-                //Create the directory if absent.
-                string fullPath = Path.GetFullPath(downloadPath);
-                bool isDir = Directory.Exists(fullPath);
-                if (!isDir)
-                {
-                    Directory.CreateDirectory(fullPath);
                 }
+                //Create the directory if absent.
+                string fullPath = this.CreateDirectory(downloadPath);
 
                 context.Output(StringUtil.Loc("DownloadArtifactTo", downloadPath));
                 PipelineArtifactServer server = new PipelineArtifactServer();
                 await server.DownloadAsyncMinimatch(context, projectId, buildIdInt, artifactName, downloadPath, minimatchPatterns, token);
                 context.Output(StringUtil.Loc("DownloadArtifactFinished"));
             }
-            else if(buildType == "specific")
+            else if (buildType == "specific")
             {
                 // Project Name - coming from the GUI.
-                int buildIdInt = 0;
-                if(buildVersionToDownload == "latest")
+                int buildIdInt;
+                if (buildVersionToDownload == "latest")
                 {
-                    List<int> defns= new List<int>();
-                    defns.Add(Int32.Parse(buildPipelineDefinition));
-                    VssConnection connection = context.VssConnection;
-                    BuildHttpClient _buildHttpClient = connection.GetClient<BuildHttpClient>();
-                    List<Build> list = await _buildHttpClient.GetBuildsAsync(project, definitions: defns, tagFilters: tagsInput,  queryOrder: BuildQueryOrder.FinishTimeDescending);
-                    if (list.Any())
-                    {
-                        buildIdInt = list.First().Id;
-                    }       
+                    buildIdInt = await this.GetBuildId(context, buildPipelineDefinition, buildVersionToDownload, project, tagsInput);
                 }
-                else if(buildVersionToDownload == "specific")
+                else if (buildVersionToDownload == "specific")
                 {
                     buildIdInt = Int32.Parse(buildId);
                 }
-                else if(buildVersionToDownload == "latestFromBranch")
+                else if (buildVersionToDownload == "latestFromBranch")
                 {
-                    List<int> defns = new List<int>();
-                    defns.Add(Int32.Parse(buildPipelineDefinition));
-                    VssConnection connection = context.VssConnection;
-                    BuildHttpClient _buildHttpClient = connection.GetClient<BuildHttpClient>();
-                    List<Build> list = await _buildHttpClient.GetBuildsAsync(project, definitions: defns, branchName: branchName, tagFilters: tagsInput, queryOrder: BuildQueryOrder.FinishTimeDescending);
-                    if (list.Any())
-                    {
-                        buildIdInt = list.First().Id;
-                    }
+                    buildIdInt = await this.GetBuildId(context, buildPipelineDefinition, buildVersionToDownload, project, tagsInput, branchName);
+                }
+                else
+                {
+                    throw new InvalidOperationException("Unreachable code!");
                 }
                 //Create the directory if absent.
-                string fullPath = Path.GetFullPath(downloadPath);
-                bool isDir = Directory.Exists(fullPath);
-                if (!isDir)
-                {
-                    Directory.CreateDirectory(fullPath);
-                }
+                string fullPath = this.CreateDirectory(downloadPath);
 
                 context.Output(StringUtil.Loc("DownloadArtifactTo", downloadPath));
                 PipelineArtifactServer server = new PipelineArtifactServer();
                 await server.DownloadAsyncWithProjectNameMiniMatch(context, project, buildIdInt, artifactName, downloadPath, minimatchPatterns, token);
                 context.Output(StringUtil.Loc("DownloadArtifactFinished"));
             }
+        }
+
+        //Create directory.
+        private string CreateDirectory(string downloadPath)
+        {
+            string fullPath = Path.GetFullPath(downloadPath);
+            bool isDir = Directory.Exists(fullPath);
+            if (!isDir)
+            {
+                Directory.CreateDirectory(fullPath);
+            }
+            return fullPath;
+        }
+
+        //Get BuildId.
+        private async Task<int> GetBuildId(AgentTaskPluginExecutionContext context, string buildPipelineDefinition, string buildVersionToDownload, string project, string[] tagsInput, string branchName=null)
+        {
+            int buildId;
+            List<int> defns = new List<int>();
+            defns.Add(Int32.Parse(buildPipelineDefinition));
+            VssConnection connection = context.VssConnection;
+            BuildHttpClient _buildHttpClient = connection.GetClient<BuildHttpClient>();
+            List<Build> list;
+            if (buildVersionToDownload == "latest")
+            {
+                list = await _buildHttpClient.GetBuildsAsync(project, definitions: defns, tagFilters: tagsInput, queryOrder: BuildQueryOrder.FinishTimeDescending);
+            }
+            else if (buildVersionToDownload == "latestFromBranch")
+            {
+                list = await _buildHttpClient.GetBuildsAsync(project, definitions: defns, branchName: branchName, tagFilters: tagsInput, queryOrder: BuildQueryOrder.FinishTimeDescending);
+            }
+            else
+            {
+                throw new ArgumentException();
+            }
+
+            if (list.Any())
+            {
+                buildId = list.First().Id;
+            }
+            else
+            {
+                throw new ArgumentException();
+            }
+            return buildId;
         }
     }
 }
