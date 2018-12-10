@@ -53,24 +53,29 @@ namespace Agent.Plugins.PipelineArtifact
     {
         // Same as https://github.com/Microsoft/vsts-tasks/blob/master/Tasks/DownloadPipelineArtifactV1/task.json
         public override Guid Id => PipelineArtifactPluginConstants.DownloadPipelineArtifactTaskId;
+        static readonly string buildTypeCurrent = "current";
+        static readonly string buildTypeSpecific = "specific";
+        static readonly string buildVersionToDownloadLatest = "latest";
+        static readonly string buildVersionToDownloadSpecific = "specific";
+        static readonly string buildVersionToDownloadLatestFromBranch = "latestFromBranch";
 
         protected override async Task ProcessCommandInternalAsync(
             AgentTaskPluginExecutionContext context, 
             CancellationToken token)
         {
             ArgUtil.NotNull(context, nameof(context));
-            string buildType = context.GetInput(ArtifactEventProperties.BuildType, required: true);
-            string project = context.GetInput(ArtifactEventProperties.Project, required: false);
+            string artifactName = context.GetInput(ArtifactEventProperties.ArtifactName, required: true);
+            string branchName = context.GetInput(ArtifactEventProperties.BranchName, required: false);
             string buildPipelineDefinition = context.GetInput(ArtifactEventProperties.BuildPipelineDefinition, required: false);
+            string buildType = context.GetInput(ArtifactEventProperties.BuildType, required: true);
             string buildTriggering = context.GetInput(ArtifactEventProperties.BuildTriggering, required: false);
             string buildVersionToDownload = context.GetInput(ArtifactEventProperties.BuildVersionToDownload, required: false);
-            string branchName = context.GetInput(ArtifactEventProperties.BranchName, required: false);
-            string userSpecifiedBuildId = context.GetInput(ArtifactEventProperties.BuildId, required: false);
-            string tags = context.GetInput(ArtifactEventProperties.Tags, required: false);
-            string artifactName = context.GetInput(ArtifactEventProperties.ArtifactName, required: true);
-            string itemPattern = context.GetInput(ArtifactEventProperties.ItemPattern, required: false);
             string downloadPath = context.GetInput(ArtifactEventProperties.DownloadPath, required: true);
             string environmentBuildId = context.Variables.GetValueOrDefault(BuildVariables.BuildId)?.Value ?? string.Empty; // BuildID provided by environment.
+            string itemPattern = context.GetInput(ArtifactEventProperties.ItemPattern, required: false);
+            string project = context.GetInput(ArtifactEventProperties.Project, required: false);
+            string tags = context.GetInput(ArtifactEventProperties.Tags, required: false);
+            string userSpecifiedBuildId = context.GetInput(ArtifactEventProperties.BuildId, required: false);
 
             string[] minimatchPatterns = itemPattern.Split(
                 new[] { "\n" },
@@ -82,11 +87,15 @@ namespace Agent.Plugins.PipelineArtifact
                 StringSplitOptions.None
             );
 
-            if (buildType == "current")
+            if (buildType == buildTypeCurrent)
             {
                 // TODO: use a constant for project id, which is currently defined in Microsoft.VisualStudio.Services.Agent.Constants.Variables.System.TeamProjectId (Ting)
-                string guidStr = context.Variables.GetValueOrDefault("system.teamProjectId")?.Value;
-                Guid projectId = Guid.Parse(guidStr);
+                string projectIdStr = context.Variables.GetValueOrDefault("system.teamProjectId")?.Value;
+                if(String.IsNullOrEmpty(projectIdStr))
+                {
+                    throw new ArgumentNullException("Project ID cannot be null.");
+                }
+                Guid projectId = Guid.Parse(projectIdStr);
                 ArgUtil.NotEmpty(projectId, nameof(projectId));
 
                 int buildId = 0;
@@ -120,18 +129,18 @@ namespace Agent.Plugins.PipelineArtifact
                 await server.DownloadAsyncMinimatch(context, projectId, buildId, artifactName, downloadPath, minimatchPatterns, token);
                 context.Output(StringUtil.Loc("DownloadArtifactFinished"));
             }
-            else if (buildType == "specific")
+            else if (buildType == buildTypeSpecific)
             {
                 int buildId;
-                if (buildVersionToDownload == "latest")
+                if (buildVersionToDownload == buildVersionToDownloadLatest)
                 {
                     buildId = await this.GetBuildIdAsync(context, buildPipelineDefinition, buildVersionToDownload, project, tagsInput);
                 }
-                else if (buildVersionToDownload == "specific")
+                else if (buildVersionToDownload == buildVersionToDownloadSpecific)
                 {
                     buildId = Int32.Parse(userSpecifiedBuildId);
                 }
-                else if (buildVersionToDownload == "latestFromBranch")
+                else if (buildVersionToDownload == buildVersionToDownloadLatestFromBranch)
                 {
                     buildId = await this.GetBuildIdAsync(context, buildPipelineDefinition, buildVersionToDownload, project, tagsInput, branchName);
                 }
