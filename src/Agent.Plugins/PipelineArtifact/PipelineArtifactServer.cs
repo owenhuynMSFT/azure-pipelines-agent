@@ -95,7 +95,8 @@ namespace Agent.Plugins.PipelineArtifact
 
             // 2) download to the target path
             var buildDropManager = this.GetBDM(context, connection);
-            await buildDropManager.DownloadAsync(manifestId, targetDir, minimatchFilters, cancellationToken);
+            DownloadPipelineArtifactOptions options = DownloadPipelineArtifactOptions.CreateWithManifestId(manifestId, targetDir, proxyUri: null, minimatchPatterns: minimatchFilters);
+            await buildDropManager.DownloadAsync(options, cancellationToken);
         }
 
         // Download pipeline artifact with project name.
@@ -121,7 +122,8 @@ namespace Agent.Plugins.PipelineArtifact
 
             // 2) download to the target path
             var buildDropManager = this.GetBDM(context, connection);
-            await buildDropManager.DownloadAsync(manifestId, targetDir, minimatchFilters, cancellationToken);
+            DownloadPipelineArtifactOptions options = DownloadPipelineArtifactOptions.CreateWithManifestId(manifestId, targetDir, proxyUri: null, minimatchPatterns: minimatchFilters);
+            await buildDropManager.DownloadAsync(options, cancellationToken);
         }
 
         private BuildDropManager GetBDM(AgentTaskPluginExecutionContext context, VssConnection connection)
