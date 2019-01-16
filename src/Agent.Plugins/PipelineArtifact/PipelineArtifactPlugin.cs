@@ -16,7 +16,7 @@ using Agent.Sdk;
 
 namespace Agent.Plugins.PipelineArtifact
 {
-    public abstract class PipelineArtifactTaskPluginBaseV0 : IAgentTaskPlugin
+    public abstract class PipelineArtifactTaskPluginBase : IAgentTaskPlugin
     {
         public abstract Guid Id { get; }
         public string Version => "0.139.0"; // Publish and Download tasks will be always on the same version.
@@ -55,7 +55,7 @@ namespace Agent.Plugins.PipelineArtifact
 
     // Caller: PublishPipelineArtifact task
     // Can be invoked from a build run or a release run should a build be set as the artifact. 
-    public class PublishPipelineArtifactTaskV0 : PipelineArtifactTaskPluginBaseV0
+    public class PublishPipelineArtifactTask : PipelineArtifactTaskPluginBase
     {
         // Same as: https://github.com/Microsoft/vsts-tasks/blob/master/Tasks/PublishPipelineArtifactV0/task.json
         public override Guid Id => PipelineArtifactPluginConstants.PublishPipelineArtifactTaskId;
