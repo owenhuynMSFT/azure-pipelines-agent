@@ -103,7 +103,7 @@ namespace Agent.Plugins.PipelineArtifact
 
     // Caller: DownloadPipelineArtifact task
     // Can be invoked from a build run or a release run should a build be set as the artifact. 
-    public class DownloadPipelineArtifactTaskV0 : PipelineArtifactTaskPluginBase
+    public class DownloadPipelineArtifactTask : PipelineArtifactTaskPluginBase
     {
         // Same as https://github.com/Microsoft/vsts-tasks/blob/master/Tasks/DownloadPipelineArtifactV0/task.json
         public override Guid Id => PipelineArtifactPluginConstants.DownloadPipelineArtifactTaskId;
