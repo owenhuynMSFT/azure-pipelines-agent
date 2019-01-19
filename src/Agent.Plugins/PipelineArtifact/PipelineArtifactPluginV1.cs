@@ -79,7 +79,7 @@ namespace Agent.Plugins.PipelineArtifact
 
             string[] minimatchPatterns = itemPattern.Split(
                 new[] { "\n" },
-                StringSplitOptions.None
+                StringSplitOptions.RemoveEmptyEntries
             );
 
             string[] tagsInput = tags.Split(
