@@ -89,7 +89,7 @@ namespace Agent.Plugins.PipelineArtifact
             BuildArtifact art = await buildHelper.GetArtifact(projectId, buildId, artifactName, cancellationToken);
             if (art.Resource.Type != "PipelineArtifact")
             {
-                throw new ArgumentException("The artifact is not of the type Pipeline Artifact\n");
+                throw new ArgumentException($"The artifact is not of the type Pipeline Artifact. Unrecognized type: {art.Resource.Type}.");
             }
             var manifestId = DedupIdentifier.Create(art.Resource.Data);
 

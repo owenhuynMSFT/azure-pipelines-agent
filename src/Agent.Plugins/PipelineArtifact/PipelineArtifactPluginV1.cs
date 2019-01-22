@@ -157,7 +157,7 @@ namespace Agent.Plugins.PipelineArtifact
             }
             else
             {
-                throw new InvalidOperationException("Unreachable code!");
+                throw new InvalidOperationException($"Build type '{buildType}' is not recognized.");
             }
         }
 
@@ -191,7 +191,7 @@ namespace Agent.Plugins.PipelineArtifact
                 throw new InvalidOperationException("Unreachable code!");
             }
 
-            if (list.Any())
+            if (list.Count > 0)
             {
                 return list.First().Id;
             }
