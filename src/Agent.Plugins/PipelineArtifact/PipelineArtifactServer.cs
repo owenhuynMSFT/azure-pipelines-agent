@@ -142,45 +142,44 @@ namespace Agent.Plugins.PipelineArtifact
             var buildDropManager = new BuildDropManager(client, tracer);
             return buildDropManager;
         }
-    }
 
-    private Task DownloadPipelineArtifacts(
-        BuildDropManager buildDropManager,
-        IList<BuildArtifact> buildArtifacts,
-        string targetDirectory,
-        string[] minimatchFilters,
-        CancellationToken cancellationToken)
-    {
-        var manifestIds = new List<>();
-        var artifactNames = new List<>();
-        var targetDirectories = new List<>();
-        foreach (var buildArtifact in buildArtifacts)
-        {
-            if (buildArtifact.Resource.Type != PipelineArtifactTypeName)
-            {
-                throw new ArgumentException("The artifact is not of the type Pipeline Artifact.");
-            }
-            manifestIds.add(DedupIdentifier.Create(buildArtifact.Resource.Data));
-            artifactNames.add(buildArtifact.Name);
-            targetDirectories.add(Path.Combine(targetDirectory, buildArtifact.Name));
-        }
-
-        // 2) download to the target path
-        DownloadPipelineArtifactOptions options = DownloadPipelineArtifactOptions.CreateWithManifestId(
-            manifestIds,
-            artifactNames,
-            targetDirectories,
-            proxyUri: null,
-            minimatchPatterns: minimatchFilters);
-        return buildDropManager.MultiDownloadAsync(options, cancellationToken);
-    }
-
-    private Task DownloadPipelineArtifact(
-            BuildDropManager buildDropManager, 
-            BuildArtifact buildArtifact, 
+        private Task DownloadPipelineArtifacts(
+            BuildDropManager buildDropManager,
+            IList<BuildArtifact> buildArtifacts,
             string targetDirectory,
             string[] minimatchFilters,
             CancellationToken cancellationToken)
+        {
+            var manifestIds = new List<>();
+            var artifactNames = new List<>();
+            var targetDirectories = new List<>();
+            foreach (var buildArtifact in buildArtifacts)
+            {
+                if (buildArtifact.Resource.Type != PipelineArtifactTypeName)
+                {
+                    throw new ArgumentException("The artifact is not of the type Pipeline Artifact.");
+                }
+                manifestIds.add(DedupIdentifier.Create(buildArtifact.Resource.Data));
+                artifactNames.add(buildArtifact.Name);
+                targetDirectories.add(Path.Combine(targetDirectory, buildArtifact.Name));
+            }
+
+            // 2) download to the target path
+            DownloadPipelineArtifactOptions options = DownloadPipelineArtifactOptions.CreateWithManifestId(
+                manifestIds,
+                artifactNames,
+                targetDirectories,
+                proxyUri: null,
+                minimatchPatterns: minimatchFilters);
+            return buildDropManager.MultiDownloadAsync(options, cancellationToken);
+        }
+
+        private Task DownloadPipelineArtifact(
+                BuildDropManager buildDropManager,
+                BuildArtifact buildArtifact,
+                string targetDirectory,
+                string[] minimatchFilters,
+                CancellationToken cancellationToken)
         {
             if (buildArtifact.Resource.Type != PipelineArtifactTypeName)
             {
@@ -196,7 +195,7 @@ namespace Agent.Plugins.PipelineArtifact
                 minimatchPatterns: minimatchFilters);
             return buildDropManager.DownloadAsync(options, cancellationToken);
         }
-    
+    } 
 
     internal class PipelineArtifactDownloadParameters
     {
