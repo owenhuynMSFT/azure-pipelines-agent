@@ -92,17 +92,12 @@ namespace Agent.Plugins.PipelineArtifact
                 else
                 {
                     context.Output(StringUtil.Loc("DownloadingMultiplePipelineArtifacts", pipelineArtifacts.Count()));
-                    foreach (BuildArtifact pipelineArtifact in pipelineArtifacts)
-                    {
-                        // each pipeline artifact will have its own subroot to avoid file collisions
-                        string pipelineArtifactRootPath = Path.Combine(downloadParameters.TargetDirectory, pipelineArtifact.Name);
-                        await DownloadPipelineArtifact(
-                            buildDropManager, 
-                            pipelineArtifact,
-                            pipelineArtifactRootPath, 
-                            downloadParameters.MinimatchFilters, 
-                            cancellationToken);
-                    }
+                    await DownloadPipelineArtifacts(
+                        buildDropManager,
+                        pipelineArtifact,
+                        downloadParameters.TargetDirectory,
+                        downloadParameters.MinimatchFilters,
+                        cancellationToken);
                 }
             }
             else
@@ -157,6 +152,7 @@ namespace Agent.Plugins.PipelineArtifact
         {
             var manifestIds = new List<>();
             var artifactNames = new List<>();
+            var targetDirectories = new List<>();
             foreach (var buildArtifact in buildArtifacts) {
                 if (buildArtifact.Resource.Type != PipelineArtifactTypeName)
                 {
@@ -164,13 +160,14 @@ namespace Agent.Plugins.PipelineArtifact
                 }
                 manifestId.add(DedupIdentifier.Create(buildArtifact.Resource.Data));
                 artifactNames.add(buildArtifact.Name);
+                targetDirectories.add(Path.Combine(targetDirectory, buildArtifact.Name));
             }
 
             // 2) download to the target path
             DownloadPipelineArtifactOptions options = DownloadPipelineArtifactOptions.CreateWithManifestId(
                 manifestIds,
                 artifactNames,
-                targetDirectory,
+                targetDirectories,
                 proxyUri: null,
                 minimatchPatterns: minimatchFilters);
             return buildDropManager.MultiDownloadAsync(options, cancellationToken);
