@@ -94,7 +94,7 @@ namespace Agent.Plugins.PipelineArtifact
                     context.Output(StringUtil.Loc("DownloadingMultiplePipelineArtifacts", pipelineArtifacts.Count()));
                     await DownloadPipelineArtifacts(
                         buildDropManager,
-                        pipelineArtifact,
+                        pipelineArtifacts,
                         downloadParameters.TargetDirectory,
                         downloadParameters.MinimatchFilters,
                         cancellationToken);
