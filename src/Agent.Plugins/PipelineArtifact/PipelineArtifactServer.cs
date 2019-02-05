@@ -145,7 +145,7 @@ namespace Agent.Plugins.PipelineArtifact
 
         private Task DownloadPipelineArtifacts(
         BuildDropManager buildDropManager,
-        Ilist<BuildArtifact> buildArtifacts,
+        IList<BuildArtifact> buildArtifacts,
         string targetDirectory,
         string[] minimatchFilters,
         CancellationToken cancellationToken)
