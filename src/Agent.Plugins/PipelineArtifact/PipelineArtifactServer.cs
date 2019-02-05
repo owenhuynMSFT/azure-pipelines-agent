@@ -124,9 +124,9 @@ namespace Agent.Plugins.PipelineArtifact
                     throw new InvalidOperationException("Unreachable code!");
                 }
 
-                await DownloadPipelineArtifact(
+                await DownloadPipelineArtifacts(
                     buildDropManager, 
-                    buildArtifact, 
+                    new List<BuildArtifact>(buildArtifact), 
                     downloadParameters.TargetDirectory, 
                     downloadParameters.MinimatchFilters, 
                     cancellationToken);
@@ -145,27 +145,27 @@ namespace Agent.Plugins.PipelineArtifact
 
         private Task DownloadPipelineArtifacts(
             BuildDropManager buildDropManager,
-            IList<BuildArtifact> buildArtifacts,
+            IEnumerable<BuildArtifact> buildArtifacts,
             string targetDirectory,
             string[] minimatchFilters,
             CancellationToken cancellationToken)
         {
-            var manifestIds = new List<>();
-            var artifactNames = new List<>();
-            var targetDirectories = new List<>();
+            IList<DedupIdentifier> manifestIds = new List<DedupIdentifier>();
+            IList<string> artifactNames = new List<string>();
+            IList<string> targetDirectories = new List<string>();
             foreach (var buildArtifact in buildArtifacts)
             {
                 if (buildArtifact.Resource.Type != PipelineArtifactTypeName)
                 {
                     throw new ArgumentException("The artifact is not of the type Pipeline Artifact.");
                 }
-                manifestIds.add(DedupIdentifier.Create(buildArtifact.Resource.Data));
-                artifactNames.add(buildArtifact.Name);
-                targetDirectories.add(Path.Combine(targetDirectory, buildArtifact.Name));
+                manifestIds.Add(DedupIdentifier.Create(buildArtifact.Resource.Data));
+                artifactNames.Add(buildArtifact.Name);
+                targetDirectories.Add(Path.Combine(targetDirectory, buildArtifact.Name));
             }
 
             // 2) download to the target path
-            DownloadPipelineArtifactOptions options = DownloadPipelineArtifactOptions.CreateWithManifestId(
+            DownloadPipelineArtifactOptions options = DownloadPipelineArtifactOptions.CreateWithMultiManifestId(
                 manifestIds,
                 artifactNames,
                 targetDirectories,
