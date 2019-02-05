@@ -158,7 +158,7 @@ namespace Agent.Plugins.PipelineArtifact
                 {
                     throw new ArgumentException("The artifact is not of the type Pipeline Artifact.");
                 }
-                manifestId.add(DedupIdentifier.Create(buildArtifact.Resource.Data));
+                manifestIds.add(DedupIdentifier.Create(buildArtifact.Resource.Data));
                 artifactNames.add(buildArtifact.Name);
                 targetDirectories.add(Path.Combine(targetDirectory, buildArtifact.Name));
             }
