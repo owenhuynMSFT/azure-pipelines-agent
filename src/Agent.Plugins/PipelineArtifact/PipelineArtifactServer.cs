@@ -171,7 +171,7 @@ namespace Agent.Plugins.PipelineArtifact
                 targetDirectories,
                 proxyUri: null,
                 minimatchPatterns: minimatchFilters);
-            return buildDropManager.MultiDownloadAsync(options, cancellationToken);
+            return buildDropManager.DownloadAsync(options, cancellationToken);
         }
     } 
 
