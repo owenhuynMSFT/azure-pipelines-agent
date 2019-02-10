@@ -165,7 +165,7 @@ namespace Agent.Plugins.PipelineArtifact
             }
 
             // 2) download to the target path
-            DownloadPipelineArtifactOptions options = DownloadPipelineArtifactOptions.CreateWithMultiManifestId(
+            DownloadPipelineArtifactOptions options = DownloadPipelineArtifactOptions.CreateWithMultiManifestIds(
                 manifestIds,
                 artifactNames,
                 targetDirectories,
