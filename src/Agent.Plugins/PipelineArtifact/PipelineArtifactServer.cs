@@ -150,25 +150,19 @@ namespace Agent.Plugins.PipelineArtifact
             string[] minimatchFilters,
             CancellationToken cancellationToken)
         {
-            IList<DedupIdentifier> manifestIds = new List<DedupIdentifier>();
-            IList<string> artifactNames = new List<string>();
-            IList<string> targetDirectories = new List<string>();
+            IDictionary<string, DedupIdentifier> manifestIdsAndDirectories = new Dictionary<string, DedupIdentifier>();
             foreach (var buildArtifact in buildArtifacts)
             {
                 if (buildArtifact.Resource.Type != PipelineArtifactTypeName)
                 {
                     throw new ArgumentException("The artifact is not of the type Pipeline Artifact.");
                 }
-                manifestIds.Add(DedupIdentifier.Create(buildArtifact.Resource.Data));
-                artifactNames.Add(buildArtifact.Name);
-                targetDirectories.Add(Path.Combine(targetDirectory, buildArtifact.Name));
+                manifestIdsAndDirectories.Add(Path.Combine(targetDirectory, buildArtifact.Name), DedupIdentifier.Create(buildArtifact.Resource.Data));
             }
 
             // 2) download to the target path
             DownloadPipelineArtifactOptions options = DownloadPipelineArtifactOptions.CreateWithMultiManifestIds(
-                manifestIds,
-                artifactNames,
-                targetDirectories,
+                manifestIdsAndDirectories,
                 proxyUri: null,
                 minimatchPatterns: minimatchFilters);
             return buildDropManager.DownloadAsync(options, cancellationToken);
