@@ -67,13 +67,14 @@ namespace Agent.Plugins.PipelineArtifact
                 TargetDirectory = targetDir
             };
 
-            return this.DownloadAsync(context, downloadParameters, cancellationToken);
+            return this.DownloadAsync(context, downloadParameters, DownloadOptions.SingleDownload, cancellationToken);
         }
 
         // Download with minimatch patterns.
         internal async Task DownloadAsync(
             AgentTaskPluginExecutionContext context,
             PipelineArtifactDownloadParameters downloadParameters,
+            DownloadOptions downloadOptions, 
             CancellationToken cancellationToken)
         {
             VssConnection connection = context.VssConnection;
@@ -81,7 +82,7 @@ namespace Agent.Plugins.PipelineArtifact
             BuildServer buildHelper = new BuildServer(connection);
             
             // download all pipeline artifacts if artifact name is missing
-            if (string.IsNullOrEmpty(downloadParameters.ArtifactName))
+            if (downloadOptions == DownloadOptions.MultiDownload)
             {
                 List<BuildArtifact> artifacts;
                 if (downloadParameters.ProjectRetrievalOptions == BuildArtifactRetrievalOptions.RetrieveByProjectId)
@@ -125,7 +126,7 @@ namespace Agent.Plugins.PipelineArtifact
                     await buildDropManager.DownloadAsync(options, cancellationToken);                        
                 }
             }
-            else
+            else if (downloadOptions == DownloadOptions.SingleDownload)
             {
                 // 1) get manifest id from artifact data
                 BuildArtifact buildArtifact;
@@ -157,6 +158,10 @@ namespace Agent.Plugins.PipelineArtifact
                     minimatchPatterns: downloadParameters.MinimatchFilters);
 
                 await buildDropManager.DownloadAsync(options, cancellationToken);
+            }
+            else
+            {
+                throw new InvalidOperationException("Unreachable code!");
             }
         }
 
@@ -195,5 +200,11 @@ namespace Agent.Plugins.PipelineArtifact
     {
         RetrieveByProjectId,
         RetrieveByProjectName
+    }
+
+    internal enum DownloadOptions
+    {
+        SingleDownload,        
+        MultiDownload
     }
 }
