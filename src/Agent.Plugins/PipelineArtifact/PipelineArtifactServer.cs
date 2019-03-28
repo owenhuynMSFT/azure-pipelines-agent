@@ -118,7 +118,7 @@ namespace Agent.Plugins.PipelineArtifact
                         keySelector: (a) => a.Name, // keys should be unique, if not something is really wrong
                         elementSelector: (a) => DedupIdentifier.Create(a.Resource.Data));
                     // 2) download to the target path
-                    DownloadPipelineArtifactOptions options = DownloadPipelineArtifactOptions.CreateWithMultiManifestIds(
+                    var options = DownloadPipelineArtifactOptions.CreateWithMultiManifestIds(
                         artifactNameAndManifestIds,
                         downloadParameters.TargetDirectory,
                         proxyUri: null,
@@ -151,7 +151,7 @@ namespace Agent.Plugins.PipelineArtifact
                 }
 
                 var manifestId = DedupIdentifier.Create(buildArtifact.Resource.Data);
-                DownloadPipelineArtifactOptions options = DownloadPipelineArtifactOptions.CreateWithManifestId(
+                var options = DownloadPipelineArtifactOptions.CreateWithManifestId(
                     manifestId,
                     downloadParameters.TargetDirectory,
                     proxyUri: null,
