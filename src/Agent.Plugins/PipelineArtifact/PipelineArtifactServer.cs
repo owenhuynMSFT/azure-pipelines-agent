@@ -146,7 +146,7 @@ namespace Agent.Plugins.PipelineArtifact
 
                 await DownloadPipelineArtifacts(
                     buildDropManager, 
-                    new List<BuildArtifact>(){ buildArtifact },
+                    new List<BuildArtifact> { buildArtifact },
                     downloadParameters.TargetDirectory, 
                     downloadParameters.MinimatchFilters, 
                     cancellationToken);
@@ -171,22 +171,40 @@ namespace Agent.Plugins.PipelineArtifact
             string[] minimatchFilters,
             CancellationToken cancellationToken)
         {
-            IDictionary<string, DedupIdentifier> artifactNameAndManifestId = new Dictionary<string, DedupIdentifier>();
-            foreach (var buildArtifact in buildArtifacts)
+            DownloadPipelineArtifactOptions options;
+            if (buildArtifacts.Count() > 1)
             {
+                IDictionary<string, DedupIdentifier> artifactNameAndManifestId = new Dictionary<string, DedupIdentifier>();
+                foreach (var buildArtifact in buildArtifacts)
+                {
+                    if (buildArtifact.Resource.Type != PipelineArtifactTypeName)
+                    {
+                        throw new ArgumentException("The artifact is not of the type Pipeline Artifact.");
+                    }
+                    artifactNameAndManifestId.Add(buildArtifact.Name, DedupIdentifier.Create(buildArtifact.Resource.Data));
+                }
+
+                // 2) download to the target path
+                options = DownloadPipelineArtifactOptions.CreateWithMultiManifestIds(
+                    artifactNameAndManifestId,
+                    targetDirectory,
+                    proxyUri: null,
+                    minimatchPatterns: minimatchFilters);
+            }
+            else
+            {
+                var buildArtifact = buildArtifacts.Single();
                 if (buildArtifact.Resource.Type != PipelineArtifactTypeName)
                 {
                     throw new ArgumentException("The artifact is not of the type Pipeline Artifact.");
                 }
-                artifactNameAndManifestId.Add(buildArtifact.Name, DedupIdentifier.Create(buildArtifact.Resource.Data));
+                var manifestId = DedupIdentifier.Create(buildArtifact.Resource.Data);
+                options = DownloadPipelineArtifactOptions.CreateWithManifestId(
+                    manifestId,
+                    targetDirectory,
+                    proxyUri: null,
+                    minimatchPatterns: minimatchFilters);
             }
-
-            // 2) download to the target path
-            DownloadPipelineArtifactOptions options = DownloadPipelineArtifactOptions.CreateWithMultiManifestIds(
-                artifactNameAndManifestId,
-                targetDirectory,
-                proxyUri: null,
-                minimatchPatterns: minimatchFilters);
             return buildDropManager.DownloadAsync(options, cancellationToken);
         }
     } 
