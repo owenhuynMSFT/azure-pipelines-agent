@@ -13,3 +13,7 @@ steps:
   inputs:
     key: 'hello123'
     path: 'D:\_temp\gfdg'
+- task: RestoreCache@0
+  inputs:
+    key: 'hello123'
+    path: 'D:\_temp\gfdg'
