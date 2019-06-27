@@ -50,6 +50,7 @@ namespace Microsoft.VisualStudio.Services.Agent
         public static string TFBuild = "TF_BUILD";
         public static string ProcessLookupId = "VSTS_PROCESS_LOOKUP_ID";
         public static string PluginTracePrefix = "##[plugin.trace]";
+        public static readonly int AgentDownloadRetryMaxAttempts = 3;
 
         // This enum is embedded within the Constants class to make it easier to reference and avoid
         // ambiguous type reference with System.Runtime.InteropServices.OSPlatform and System.Runtime.InteropServices.Architecture
@@ -70,8 +71,6 @@ namespace Microsoft.VisualStudio.Services.Agent
 
         public static class Agent
         {
-            public static readonly string Version = "2.144.0";
-
 #if OS_LINUX
             public static readonly OSPlatform Platform = OSPlatform.Linux;
 #elif OS_OSX
@@ -107,6 +106,7 @@ namespace Microsoft.VisualStudio.Services.Agent
                     public static readonly string MachineGroupName = "machinegroupname";
                     public static readonly string MachineGroupTags = "machinegrouptags";
                     public static readonly string Matrix = "matrix";
+                    public static readonly string MonitorSocketAddress = "monitorsocketaddress";
                     public static readonly string NotificationPipeName = "notificationpipename";
                     public static readonly string NotificationSocketAddress = "notificationsocketaddress";
                     public static readonly string Phase = "phase";
@@ -166,6 +166,8 @@ namespace Microsoft.VisualStudio.Services.Agent
                     public static readonly string MachineGroup = "machinegroup";
                     public static readonly string Replace = "replace";
                     public static readonly string NoRestart = "norestart";
+                    public static readonly string LaunchBrowser = "launchbrowser";
+                    public static readonly string Once = "once";
                     public static readonly string RunAsAutoLogon = "runasautologon";
                     public static readonly string RunAsService = "runasservice";
                     public static readonly string SslSkipCertValidation = "sslskipcertvalidation";
@@ -181,6 +183,7 @@ namespace Microsoft.VisualStudio.Services.Agent
                 public const int TerminatedError = 1;
                 public const int RetryableError = 2;
                 public const int AgentUpdating = 3;
+                public const int RunOnceAgentUpdating = 4;
             }
 
             public static class AgentConfigurationProvider
@@ -212,6 +215,7 @@ namespace Microsoft.VisualStudio.Services.Agent
 
         public static class Configuration
         {
+            public static readonly string AAD = "AAD";
             public static readonly string PAT = "PAT";
             public static readonly string Alternate = "ALT";
             public static readonly string Negotiate = "Negotiate";
@@ -367,6 +371,11 @@ namespace Microsoft.VisualStudio.Services.Agent
                 public static readonly string SkipSyncSource = "agent.source.skip";
             }
 
+            public static class Pipeline
+            {
+                public static readonly string Workspace = "pipeline.workspace";
+            }
+
             public static class Release
             {
                 //
@@ -409,6 +418,7 @@ namespace Microsoft.VisualStudio.Services.Agent
                 public static readonly string HostType = "system.hosttype";
                 public static readonly string PhaseDisplayName = "system.phaseDisplayName";
                 public static readonly string PreferGitFromPath = "system.prefergitfrompath";
+                public static readonly string PullRequestTargetBranchName = "system.pullrequest.targetbranch";
                 public static readonly string SelfManageGitCreds = "system.selfmanagegitcreds";
                 public static readonly string ServerType = "system.servertype";
                 public static readonly string TFServerUrl = "system.TeamFoundationServerUri"; // back compat variable, do not document
