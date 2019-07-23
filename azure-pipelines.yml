@@ -9,7 +9,7 @@ trigger:
 pool: Default
 
 steps:
-- task: Cache@0
+- task: CacheBeta@0
   inputs:
     key: 'hello123'
     path: 'D:\_temp\gfdg'
