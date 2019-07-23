@@ -9,11 +9,7 @@ trigger:
 pool: Default
 
 steps:
-- task: SaveCache@0
-  inputs:
-    key: 'hello123'
-    path: 'D:\_temp\gfdg'
-- task: RestoreCache@0
+- task: Cache@0
   inputs:
     key: 'hello123'
     path: 'D:\_temp\gfdg'
