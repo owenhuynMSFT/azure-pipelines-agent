@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -9,6 +10,7 @@ using System.IO;
 using Agent.Sdk;
 using Microsoft.VisualStudio.Services.Agent.Util;
 using Microsoft.VisualStudio.Services.Common;
+using Pipelines = Microsoft.TeamFoundation.DistributedTask.Pipelines;
 
 namespace Agent.Plugins.Repository
 {
@@ -123,6 +125,16 @@ namespace Agent.Plugins.Repository
                 context.Output(StringUtil.Loc("UpgradeToLatestGit", recommendGitVersion, gitVersion));
             }
 
+            // git-lfs 2.7.1 contains a bug where it doesn't include extra header from git config
+            // See https://github.com/git-lfs/git-lfs/issues/3571
+            bool gitLfsSupport = StringUtil.ConvertToBoolean(context.GetInput(Pipelines.PipelineConstants.CheckoutTaskInputs.Lfs));
+            Version recommendedGitLfsVersion = new Version(2, 7, 2);
+            
+            if (gitLfsSupport && gitLfsVersion == new Version(2, 7, 1))
+            {
+                context.Output(StringUtil.Loc("UnsupportedGitLfsVersion", gitLfsVersion, recommendedGitLfsVersion));
+            }
+
             // Set the user agent.
             string gitHttpUserAgentEnv = $"git/{gitVersion.ToString()} (vsts-agent-git/{context.Variables.GetValueOrDefault("agent.version")?.Value ?? "unknown"})";
             context.Debug($"Set git useragent to: {gitHttpUserAgentEnv}.");
@@ -146,21 +158,30 @@ namespace Agent.Plugins.Repository
                 refSpec = refSpec.Where(r => !string.IsNullOrEmpty(r)).ToList();
             }
 
+            // Git 2.20 changed its fetch behavior, rejecting tag updates if the --force flag is not provided
+            // See https://git-scm.com/docs/git-fetch for more details
+            string forceTag = string.Empty;
+
+            if (gitVersion >= new Version(2, 20))
+            {
+                forceTag = "--force";
+            }
+
             // default options for git fetch.
-            string options = StringUtil.Format($"--tags --prune --progress --no-recurse-submodules {remoteName} {string.Join(" ", refSpec)}");
+            string options = StringUtil.Format($"{forceTag} --tags --prune --progress --no-recurse-submodules {remoteName} {string.Join(" ", refSpec)}");
 
             // If shallow fetch add --depth arg
             // If the local repository is shallowed but there is no fetch depth provide for this build,
             // add --unshallow to convert the shallow repository to a complete repository
             if (fetchDepth > 0)
             {
-                options = StringUtil.Format($"--tags --prune --progress --no-recurse-submodules --depth={fetchDepth} {remoteName} {string.Join(" ", refSpec)}");
+                options = StringUtil.Format($"{forceTag} --tags --prune --progress --no-recurse-submodules --depth={fetchDepth} {remoteName} {string.Join(" ", refSpec)}");
             }
             else
             {
                 if (File.Exists(Path.Combine(repositoryPath, ".git", "shallow")))
                 {
-                    options = StringUtil.Format($"--tags --prune --progress --no-recurse-submodules --unshallow {remoteName} {string.Join(" ", refSpec)}");
+                    options = StringUtil.Format($"{forceTag} --tags --prune --progress --no-recurse-submodules --unshallow {remoteName} {string.Join(" ", refSpec)}");
                 }
             }
 
@@ -168,7 +189,25 @@ namespace Agent.Plugins.Repository
             int fetchExitCode = 0;
             while (retryCount < 3)
             {
+                Stopwatch watch = new Stopwatch();
+
+                watch.Start();
+
                 fetchExitCode = await ExecuteGitCommandAsync(context, repositoryPath, "fetch", options, additionalCommandLine, cancellationToken);
+                
+                watch.Stop();
+
+                // Publish some fetch statistics
+                context.PublishTelemetry(area: "AzurePipelinesAgent", feature: "GitFetch", properties: new Dictionary<string, string>
+                {
+                    { "ElapsedTimeMilliseconds", $"{watch.ElapsedMilliseconds}" },
+                    { "RefSpec", string.Join(" ", refSpec) },
+                    { "RemoteName", remoteName },
+                    { "FetchDepth", $"{fetchDepth}" },
+                    { "ExitCode", $"{fetchExitCode}" },
+                    { "Options", options }
+                });
+
                 if (fetchExitCode == 0)
                 {
                     break;
@@ -284,7 +323,7 @@ namespace Agent.Plugins.Repository
             return await ExecuteGitCommandAsync(context, repositoryPath, "remote", StringUtil.Format($"set-url --push {remoteName} {remoteUrl}"));
         }
 
-        // git submodule foreach git clean -ffdx
+        // git submodule foreach --recursive "git clean -ffdx"
         public async Task<int> GitSubmoduleClean(AgentTaskPluginExecutionContext context, string repositoryPath)
         {
             context.Debug($"Delete untracked files/folders for submodules at {repositoryPath}.");
@@ -300,14 +339,14 @@ namespace Agent.Plugins.Repository
                 options = "-fdx";
             }
 
-            return await ExecuteGitCommandAsync(context, repositoryPath, "submodule", $"foreach git clean {options}");
+            return await ExecuteGitCommandAsync(context, repositoryPath, "submodule", $"foreach --recursive \"git clean {options}\"");
         }
 
-        // git submodule foreach git reset --hard HEAD
+        // git submodule foreach --recursive "git reset --hard HEAD"
         public async Task<int> GitSubmoduleReset(AgentTaskPluginExecutionContext context, string repositoryPath)
         {
             context.Debug($"Undo any changes to tracked files in the working tree for submodules at {repositoryPath}.");
-            return await ExecuteGitCommandAsync(context, repositoryPath, "submodule", "foreach git reset --hard HEAD");
+            return await ExecuteGitCommandAsync(context, repositoryPath, "submodule", "foreach --recursive \"git reset --hard HEAD\"");
         }
 
         // git submodule update --init --force [--depth=15] [--recursive]

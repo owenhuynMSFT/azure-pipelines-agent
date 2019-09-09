@@ -2,7 +2,9 @@
 using Microsoft.TeamFoundation.TestManagement.WebApi;
 using Microsoft.VisualStudio.Services.Agent.Util;
 using Microsoft.VisualStudio.Services.Agent.Worker;
+using Microsoft.VisualStudio.Services.Agent.Worker.Telemetry;
 using Microsoft.VisualStudio.Services.Agent.Worker.TestResults;
+using Microsoft.VisualStudio.Services.WebPlatform;
 using Moq;
 using System;
 using System.Collections.Generic;
@@ -26,6 +28,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests.Worker.TestResults
         private Mock<ITestRunPublisher> _mockTestRunPublisher;
         private Mock<IExtensionManager> _mockExtensionManager;
         private Mock<IAsyncCommandContext> _mockCommandContext;
+        private Mock<ICustomerIntelligenceServer> _mockCustomerIntelligenceServer;
         private TestHostContext _hc;
         private Variables _variables;
 
@@ -40,6 +43,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests.Worker.TestResults
                 .Returns(testRunData);
 
             _mockTestRunPublisher = new Mock<ITestRunPublisher>();
+
+            _mockCustomerIntelligenceServer = new Mock<ICustomerIntelligenceServer>();
+            _mockCustomerIntelligenceServer.Setup(x => x.PublishEventsAsync(It.IsAny<CustomerIntelligenceEvent[]>()));
         }
 
         [Fact]
@@ -214,6 +220,57 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests.Worker.TestResults
                 });
             _mockTestRunPublisher.Setup(q => q.ReadResultsFromFile(It.IsAny<TestRunContext>(), It.IsAny<string>()))
                 .Returns(testRunData);
+            _mockTestRunPublisher.Setup(q => q.EndTestRunAsync(It.IsAny<TestRunData>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+
+            resultCommand.ProcessCommand(_ec.Object, command);
+
+            Assert.Equal(1, _errors.Count());
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "PublishTestResults")]
+        public void VerifyPublishTaskErrorIfFailTaskIsTrueAndThereAreFailedTestsInMultipleResultFiles()
+        {
+            SetupMocks();
+            var resultCommand = new ResultsCommandExtension();
+            resultCommand.Initialize(_hc);
+            var command = new Command("results", "publish");
+            command.Properties.Add("resultFiles", "file1.trx,file2.trx");
+            command.Properties.Add("type", "NUnit");
+            command.Properties.Add("mergeResults", bool.TrueString);
+            command.Properties.Add("failTaskOnFailedTests", bool.TrueString);
+            var resultsFiles = new List<string> { "file1.trx", "file2.trx" };
+
+            var testRunDataPassed = new TestRunData();
+            var testRunDataFailed = new TestRunData();
+
+            var passedTest = new TestCaseResultData();
+            passedTest.Outcome = TestOutcome.Passed.ToString();
+
+            var failedTest = new TestCaseResultData();
+            failedTest.Outcome = TestOutcome.Failed.ToString();
+
+            testRunDataPassed.Results = new TestCaseResultData[] { passedTest };
+            testRunDataPassed.Attachments = new string[] { "attachment1", "attachment2" };
+            testRunDataFailed.Results = new TestCaseResultData[] { failedTest };
+            testRunDataPassed.Attachments = new string[] { "attachment1", "attachment2" };
+
+            _mockTestRunPublisher.Setup(q => q.StartTestRunAsync(It.IsAny<TestRunData>(), It.IsAny<CancellationToken>()))
+                .Callback((TestRunData trd, CancellationToken cancellationToken) =>
+                {
+                    Assert.Equal(resultsFiles.Count * testRunDataPassed.Attachments.Length, trd.Attachments.Length);
+                });
+            _mockTestRunPublisher.Setup(q => q.AddResultsAsync(It.IsAny<TestRun>(), It.IsAny<TestCaseResultData[]>(), It.IsAny<CancellationToken>()))
+                .Callback((TestRun testRun, TestCaseResultData[] tcrd, CancellationToken cancellationToken) =>
+                {
+                    Assert.Equal(resultsFiles.Count * testRunDataPassed.Results.Length, tcrd.Length);
+                });
+            _mockTestRunPublisher.Setup(q => q.ReadResultsFromFile(It.IsAny<TestRunContext>(), "file1.trx"))
+                .Returns(testRunDataPassed);
+            _mockTestRunPublisher.Setup(q => q.ReadResultsFromFile(It.IsAny<TestRunContext>(), "file2.trx"))
+                .Returns(testRunDataFailed);
             _mockTestRunPublisher.Setup(q => q.EndTestRunAsync(It.IsAny<TestRunData>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
                 .Returns(Task.CompletedTask);
 
@@ -566,6 +623,43 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests.Worker.TestResults
         [Fact]
         [Trait("Level", "L0")]
         [Trait("Category", "PublishTestResults")]
+        public void VerifyTestRunPipelineReferenceIsSentWhenPublishing()
+        {
+            SetupMocks("VerifyTestRunPipelineReferenceIsSentWhenPublishing", true);
+            var resultCommand = new ResultsCommandExtension();
+            resultCommand.Initialize(_hc);
+            var command = new Command("results", "publish");
+            command.Properties.Add("resultFiles", "file1.trx");
+            command.Properties.Add("type", "NUnit");
+            // Explicitly not merging it to check if the test run title is not modified when there's only one test file.
+            command.Properties.Add("mergeResults", bool.FalseString);
+            command.Properties.Add("runTitle", "TestRunTitle");
+            var resultsFiles = new List<string> { "file1.trx" };
+           
+            var testRunData = new TestRunData();
+            testRunData.Results = new TestCaseResultData[] { new TestCaseResultData() };
+            _mockTestRunPublisher.Setup(q => q.StartTestRunAsync(It.IsAny<TestRunData>(), It.IsAny<CancellationToken>()))
+                .Callback((TestRunData trd, CancellationToken cancellationToken) =>
+                {
+                    Assert.Equal("stage1", trd.PipelineReference.StageReference.StageName);
+                    Assert.Equal("phase1", trd.PipelineReference.PhaseReference.PhaseName);
+                    Assert.Equal("job1", trd.PipelineReference.JobReference.JobName);
+                    Assert.Equal(1, trd.PipelineReference.JobReference.Attempt);
+                    Assert.Equal(1, trd.PipelineReference.PhaseReference.Attempt);
+                    Assert.Equal(1, trd.PipelineReference.StageReference.Attempt);
+                });
+            _mockTestRunPublisher.Setup(q => q.ReadResultsFromFile(It.IsAny<TestRunContext>(), It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(testRunData);
+
+            resultCommand.ProcessCommand(_ec.Object, command);
+
+            // Making sure that the callback is called.
+            _mockTestRunPublisher.Verify(q => q.StartTestRunAsync(It.IsAny<TestRunData>(), It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "PublishTestResults")]
         public void VerifyStartEndTestRunTimeWhenPublishingToSingleTestRun()
         {
             SetupMocks();
@@ -603,10 +697,12 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests.Worker.TestResults
             resultCommand.ProcessCommand(_ec.Object, command);
         }
 
-        private void SetupMocks([CallerMemberName] string name = "")
+        private void SetupMocks([CallerMemberName] string name = "", bool includePipelineVariables = false)
         {
             _hc = new TestHostContext(this, name);
             _hc.SetSingleton(_mockResultReader.Object);
+
+            _hc.SetSingleton(_mockCustomerIntelligenceServer.Object);
 
             _mockExtensionManager = new Mock<IExtensionManager>();
             _mockExtensionManager.Setup(x => x.GetExtensions<IResultReader>()).Returns(new List<IResultReader> { _mockResultReader.Object, new JUnitResultReader(), new NUnitResultReader() });
@@ -624,6 +720,15 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests.Worker.TestResults
             List<string> warnings;
             _variables = new Variables(_hc, new Dictionary<string, VariableValue>(), out warnings);
             _variables.Set("build.buildId", "1");
+            if(includePipelineVariables)
+            {
+                _variables.Set("system.jobName", "job1");
+                _variables.Set("system.phaseName", "phase1");
+                _variables.Set("system.stageName", "stage1");
+                _variables.Set("system.jobAttempt", "1");
+                _variables.Set("system.phaseAttempt", "1");
+                _variables.Set("system.stageAttempt", "1");
+            }
             endpointAuthorization.Parameters[EndpointAuthorizationParameters.AccessToken] = "accesstoken";
 
             _ec = new Mock<IExecutionContext>();

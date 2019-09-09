@@ -22,10 +22,11 @@ namespace Agent.Plugins.PipelineArtifact
         }
 
         // Associate the specified artifact with a build, along with custom data.
-        public async Task<BuildArtifact> AssociateArtifact(
+        public async Task<BuildArtifact> AssociateArtifactAsync(
             Guid projectId,
-            int buildId,
+            int pipelineId,
             string name,
+            string jobId,
             string type,
             string data,
             Dictionary<string, string> propertiesDictionary,
@@ -34,6 +35,7 @@ namespace Agent.Plugins.PipelineArtifact
             BuildArtifact artifact = new BuildArtifact()
             {
                 Name = name,
+                Source = jobId,
                 Resource = new ArtifactResource()
                 {
                     Data = data,
@@ -42,27 +44,43 @@ namespace Agent.Plugins.PipelineArtifact
                 }
             };
 
-            return await _buildHttpClient.CreateArtifactAsync(artifact, projectId, buildId, cancellationToken: cancellationToken);
+            return await _buildHttpClient.CreateArtifactAsync(artifact, projectId, pipelineId, cancellationToken: cancellationToken);
         }
 
         // Get named artifact from a build
         public async Task<BuildArtifact> GetArtifact(
             Guid projectId,
-            int buildId,
+            int pipelineId,
             string name,
-            CancellationToken cancellationToken = default(CancellationToken))
+            CancellationToken cancellationToken)
         {
-            return await _buildHttpClient.GetArtifactAsync(projectId, buildId, name, cancellationToken: cancellationToken);
+            return await _buildHttpClient.GetArtifactAsync(projectId, pipelineId, name, cancellationToken: cancellationToken);
+        }
+
+        public Task<List<BuildArtifact>> GetArtifactsAsync(
+            Guid project,
+            int pipelineId,
+            CancellationToken cancellationToken)
+        {
+            return _buildHttpClient.GetArtifactsAsync(project, pipelineId, userState: null, cancellationToken: cancellationToken);
         }
 
         //Get artifact with project name.
-        public async Task<BuildArtifact> GetArtifactWithProjectAsync(
+        public async Task<BuildArtifact> GetArtifactWithProjectNameAsync(
             string project,
-            int buildId,
+            int pipelineId,
             string name,
-            CancellationToken cancellationToken = default(CancellationToken))
+            CancellationToken cancellationToken)
         {
-            return await _buildHttpClient.GetArtifactAsync(project, buildId, name, cancellationToken: cancellationToken);
+            return await _buildHttpClient.GetArtifactAsync(project, pipelineId, name, cancellationToken: cancellationToken);
+        }
+
+        public Task<List<BuildArtifact>> GetArtifactsWithProjectNameAsync(
+            string project,
+            int pipelineId,
+            CancellationToken cancellationToken)
+        {
+            return _buildHttpClient.GetArtifactsAsync(project, pipelineId, userState: null, cancellationToken: cancellationToken);
         }
     }
 }

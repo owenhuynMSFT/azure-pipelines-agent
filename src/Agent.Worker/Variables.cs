@@ -158,8 +158,11 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
         public bool? System_EnableAccessToken => GetBoolean(Constants.Variables.System.EnableAccessToken);
 
         public HostTypes System_HostType => GetEnum<HostTypes>(Constants.Variables.System.HostType) ?? HostTypes.None;
+        public string System_JobId => Get(Constants.Variables.System.JobId);
 
         public string System_PhaseDisplayName => Get(Constants.Variables.System.PhaseDisplayName);
+
+        public string System_PullRequest_TargetBranch => Get(Constants.Variables.System.PullRequestTargetBranchName);
 
         public string System_TaskDefinitionsUri => Get(WellKnownDistributedTaskVariables.TaskDefinitionsUrl);
 
@@ -168,6 +171,47 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
         public Guid? System_TeamProjectId => GetGuid(BuildWebApi.BuildVariables.TeamProjectId);
 
         public string System_TFCollectionUrl => Get(WellKnownDistributedTaskVariables.TFCollectionUrl);
+
+        public string System_StageName => Get(Constants.Variables.System.StageName);
+
+        public int? System_StageAttempt => GetInt(Constants.Variables.System.StageAttempt);
+
+        public string System_PhaseName => Get(Constants.Variables.System.PhaseName);
+
+        public int? System_PhaseAttempt => GetInt(Constants.Variables.System.PhaseAttempt);
+
+        public string System_JobName => Get(Constants.Variables.System.JobName);
+
+        public int? System_JobAttempt => GetInt(Constants.Variables.System.JobAttempt);
+
+
+        public static readonly HashSet<string> PiiVariables = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Build.AuthorizeAs",
+            "Build.QueuedBy",
+            "Build.RequestedFor",
+            "Build.RequestedForEmail",
+            "Build.SourceBranch",
+            "Build.SourceBranchName",
+            "Build.SourceTfvcShelveset",
+            "Build.SourceVersion",
+            "Build.SourceVersionAuthor",
+            "Job.AuthorizeAs",
+            "Release.Deployment.RequestedFor",
+            "Release.Deployment.RequestedForEmail",
+            "Release.RequestedFor",
+            "Release.RequestedForEmail",
+        };
+
+        public static readonly string PiiArtifactVariablePrefix = "Release.Artifacts";
+
+        public static readonly List<string> PiiArtifactVariableSuffixes = new List<string>()
+        {
+            "SourceBranch",
+            "SourceBranchName",
+            "SourceVersion",
+            "RequestedFor"
+        };
 
         public void ExpandValues(IDictionary<string, string> target)
         {
@@ -179,6 +223,22 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             }
 
             VarUtil.ExpandValues(_hostContext, source, target);
+        }
+
+        public string ExpandValue(string name, string value)
+        {
+            _trace.Entering();
+            var source = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Variable variable in _expanded.Values)
+            {
+                source[variable.Name] = variable.Value;
+            }
+            var target = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                [name] = value
+            };
+            VarUtil.ExpandValues(_hostContext, source, target);
+            return target[name];
         }
 
         public JToken ExpandValues(JToken target)

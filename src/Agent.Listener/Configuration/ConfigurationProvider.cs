@@ -3,6 +3,7 @@ using Microsoft.VisualStudio.Services.Agent.Util;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.TeamFoundation.Common;
 using Microsoft.VisualStudio.Services.Common;
@@ -20,7 +21,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener.Configuration
 
         Task TestConnectionAsync(AgentSettings agentSettings, VssCredentials creds, bool isHosted);
 
-        Task GetPoolId(AgentSettings agentSettings, CommandSettings command);
+        Task GetPoolIdAndName(AgentSettings agentSettings, CommandSettings command);
 
         string GetFailedToFindPoolErrorString();
 
@@ -61,7 +62,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener.Configuration
             // Collection name is not required for Build/Release agent
         }
 
-        public virtual async Task GetPoolId(AgentSettings agentSettings, CommandSettings command)
+        public virtual async Task GetPoolIdAndName(AgentSettings agentSettings, CommandSettings command)
         {
             string poolName = command.GetPool();
 
@@ -72,8 +73,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener.Configuration
             }
             else
             {
-                Trace.Info("Found pool {0} with id {1}", poolName, agentPool.Id);
+                Trace.Info("Found pool {0} with id {1} and name {2}", poolName, agentPool.Id, agentPool.Name);
                 agentSettings.PoolId = agentPool.Id;
+                agentSettings.PoolName = agentPool.Name;
             }
         }
 
@@ -102,9 +104,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener.Configuration
         public async Task TestConnectionAsync(AgentSettings agentSettings, VssCredentials creds, bool isHosted)
         {
             _term.WriteLine(StringUtil.Loc("ConnectingToServer"));
-            VssConnection connection = VssUtil.CreateConnection(new Uri(agentSettings.ServerUrl), creds);
-
-            await _agentServer.ConnectAsync(connection);
+            await _agentServer.ConnectAsync(new Uri(agentSettings.ServerUrl), creds);
         }
 
         public async Task<TaskAgent> GetAgentAsync(AgentSettings agentSettings)
@@ -148,7 +148,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener.Configuration
             }
         }
 
-        public async Task GetPoolId(AgentSettings agentSettings, CommandSettings command)
+        public async Task GetPoolIdAndName(AgentSettings agentSettings, CommandSettings command)
         {
             _projectName = command.GetProjectName(_projectName);
             var deploymentGroupName = command.GetDeploymentGroupName();
@@ -158,6 +158,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener.Configuration
             Trace.Info($"Project id for deployment group '{deploymentGroupName}' is '{deploymentGroup.Project.Id.ToString()}'.");
 
             agentSettings.PoolId = deploymentGroup.Pool.Id;
+            agentSettings.PoolName = deploymentGroup.Pool.Name;
             agentSettings.DeploymentGroupId = deploymentGroup.Id;
             agentSettings.ProjectId = deploymentGroup.Project.Id.ToString();
         }
@@ -183,6 +184,11 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener.Configuration
         public async Task<TaskAgent> AddAgentAsync(AgentSettings agentSettings, TaskAgent agent, CommandSettings command)
         {
             var deploymentMachine = new DeploymentMachine() { Agent = agent };
+            var azureSubscriptionId = await GetAzureSubscriptionIdAsync();
+            if (!String.IsNullOrEmpty(azureSubscriptionId))
+            {
+                deploymentMachine.Properties.Add("AzureSubscriptionId", azureSubscriptionId);
+            }
             deploymentMachine = await _deploymentGroupServer.AddDeploymentTargetAsync(new Guid(agentSettings.ProjectId), agentSettings.DeploymentGroupId, deploymentMachine);
 
             await GetAndAddTags(deploymentMachine, agentSettings, command);
@@ -308,6 +314,35 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener.Configuration
 
             return machines;
         }
+
+        private async Task<string> GetAzureSubscriptionIdAsync()
+        {
+            // We will use the Azure Instance Metadata Service in order to fetch metadata ( in this case Subscription Id used to provision the VM) if the VM is an Azure VM
+            // More on Instance Metadata Service can be found here: https://docs.microsoft.com/en-us/azure/virtual-machines/windows/instance-metadata-service
+            string azureSubscriptionId = string.Empty;
+            const string imdsUri = "http://169.254.169.254/metadata/instance/compute/subscriptionId?api-version=2017-08-01&format=text";
+            using (var httpClient = new HttpClient(HostContext.CreateHttpClientHandler()))
+            {
+                httpClient.DefaultRequestHeaders.Add("Metadata", "True");
+                httpClient.Timeout = TimeSpan.FromSeconds(5);
+                try
+                {
+                    azureSubscriptionId = await httpClient.GetStringAsync(imdsUri);
+                    if (!Guid.TryParse(azureSubscriptionId, out Guid result))
+                    {
+                        azureSubscriptionId = string.Empty;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // An exception will be thrown if the Agent Machine is a non-Azure VM.
+                    azureSubscriptionId = string.Empty;
+                    Trace.Info($"GetAzureSubscriptionId ex: {ex.Message}");
+                }
+            }
+
+            return azureSubscriptionId;
+        }
     }
 
     public class SharedDeploymentAgentConfigProvider : BuildReleasesAgentConfigProvider, IConfigurationProvider
@@ -315,7 +350,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener.Configuration
         public new string ConfigurationProviderType
             => Constants.Agent.AgentConfigurationProvider.SharedDeploymentAgentConfiguration;
 
-        public override async Task GetPoolId(AgentSettings agentSettings, CommandSettings command)
+        public override async Task GetPoolIdAndName(AgentSettings agentSettings, CommandSettings command)
         {
             string poolName = command.GetDeploymentPoolName();
 
@@ -326,8 +361,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener.Configuration
             }
             else
             {
-                Trace.Info("Found deployment pool {0} with id {1}", poolName, agentPool.Id);
+                Trace.Info("Found deployment pool {0} with id {1} and name {2}", poolName, agentPool.Id, agentPool.Name);
                 agentSettings.PoolId = agentPool.Id;
+                agentSettings.PoolName = agentPool.Name;
             }
         }
     }

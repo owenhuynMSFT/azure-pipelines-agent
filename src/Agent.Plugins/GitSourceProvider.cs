@@ -18,6 +18,14 @@ namespace Agent.Plugins.Repository
 {
     public class ExternalGitSourceProvider : GitSourceProvider
     {
+        public override bool GitSupportsFetchingCommitBySha1Hash
+        {
+            get
+            {
+                return false;
+            }
+        }
+
         // external git repository won't use auth header cmdline arg, since we don't know the auth scheme.
         public override bool GitSupportUseAuthHeader(AgentTaskPluginExecutionContext executionContext, GitCliManager gitCommandManager)
         {
@@ -48,7 +56,7 @@ namespace Agent.Plugins.Repository
         }
     }
 
-    public sealed class AuthenticatedGitSourceProvider : GitSourceProvider
+    public abstract class AuthenticatedGitSourceProvider : GitSourceProvider
     {
         public override bool GitSupportUseAuthHeader(AgentTaskPluginExecutionContext executionContext, GitCliManager gitCommandManager)
         {
@@ -86,8 +94,38 @@ namespace Agent.Plugins.Repository
         }
     }
 
+    public sealed class BitbucketGitSourceProvider : AuthenticatedGitSourceProvider
+    {
+        public override bool GitSupportsFetchingCommitBySha1Hash
+        {
+            get
+            {
+                return true;
+            }
+        }
+    }
+
+    public sealed class GitHubSourceProvider : AuthenticatedGitSourceProvider
+    {
+        public override bool GitSupportsFetchingCommitBySha1Hash
+        {
+            get
+            {
+                return false;
+            }
+        }
+    }
+
     public sealed class TfsGitSourceProvider : GitSourceProvider
     {
+        public override bool GitSupportsFetchingCommitBySha1Hash
+        {
+            get
+            {
+                return true;
+            }
+        }
+
         public override bool GitSupportUseAuthHeader(AgentTaskPluginExecutionContext executionContext, GitCliManager gitCommandManager)
         {
             // v2.9 git exist use auth header for tfsgit repository.
@@ -177,6 +215,8 @@ namespace Agent.Plugins.Repository
         public abstract void RequirementCheck(AgentTaskPluginExecutionContext executionContext, Pipelines.RepositoryResource repository, GitCliManager gitCommandManager);
         public abstract string GenerateAuthHeader(AgentTaskPluginExecutionContext executionContext, string username, string password);
 
+        public abstract bool GitSupportsFetchingCommitBySha1Hash { get; }
+
         public async Task GetSourceAsync(
             AgentTaskPluginExecutionContext executionContext,
             Pipelines.RepositoryResource repository,
@@ -210,15 +250,23 @@ namespace Agent.Plugins.Repository
 
             bool clean = StringUtil.ConvertToBoolean(executionContext.GetInput(Pipelines.PipelineConstants.CheckoutTaskInputs.Clean));
 
+            // input Submodules can be ['', true, false, recursive]
+            // '' or false indicate don't checkout submodules
+            // true indicate checkout top level submodules
+            // recursive indicate checkout submodules recursively 
             bool checkoutSubmodules = false;
             bool checkoutNestedSubmodules = false;
             string submoduleInput = executionContext.GetInput(Pipelines.PipelineConstants.CheckoutTaskInputs.Submodules);
             if (!string.IsNullOrEmpty(submoduleInput))
             {
-                checkoutSubmodules = true;
                 if (string.Equals(submoduleInput, Pipelines.PipelineConstants.CheckoutTaskInputs.SubmodulesOptions.Recursive, StringComparison.OrdinalIgnoreCase))
                 {
+                    checkoutSubmodules = true;
                     checkoutNestedSubmodules = true;
+                }
+                else
+                {
+                    checkoutSubmodules = StringUtil.ConvertToBoolean(submoduleInput);
                 }
             }
 
@@ -261,6 +309,11 @@ namespace Agent.Plugins.Repository
             }
 
             bool exposeCred = StringUtil.ConvertToBoolean(executionContext.GetInput(Pipelines.PipelineConstants.CheckoutTaskInputs.PersistCredentials));
+            
+            // Read 'disable fetch by commit' value from the execution variable first, then from the environment variable if the first one is not set
+            bool fetchByCommit = GitSupportsFetchingCommitBySha1Hash && !StringUtil.ConvertToBoolean(
+                executionContext.Variables.GetValueOrDefault("VSTS.DisableFetchByCommit")?.Value ??
+                System.Environment.GetEnvironmentVariable("VSTS_DISABLEFETCHBYCOMMIT"), false);
 
             executionContext.Debug($"repository url={repositoryUrl}");
             executionContext.Debug($"targetPath={targetPath}");
@@ -542,7 +595,7 @@ namespace Agent.Plugins.Repository
                             int exitCode_submoduleclean = await gitCommandManager.GitSubmoduleClean(executionContext, targetPath);
                             if (exitCode_submoduleclean != 0)
                             {
-                                executionContext.Debug($"'git submodule foreach git clean -ffdx' failed with exit code {exitCode_submoduleclean}\nFor futher investigation, manually run 'git submodule foreach git clean -ffdx' on repo root: {targetPath} after each build.");
+                                executionContext.Debug($"'git submodule foreach --recursive \"git clean -ffdx\"' failed with exit code {exitCode_submoduleclean}\nFor futher investigation, manually run 'git submodule foreach --recursive \"git clean -ffdx\"' on repo root: {targetPath} after each build.");
                                 softCleanSucceed = false;
                             }
                         }
@@ -552,7 +605,7 @@ namespace Agent.Plugins.Repository
                             int exitCode_submodulereset = await gitCommandManager.GitSubmoduleReset(executionContext, targetPath);
                             if (exitCode_submodulereset != 0)
                             {
-                                executionContext.Debug($"'git submodule foreach git reset --hard HEAD' failed with exit code {exitCode_submodulereset}\nFor futher investigation, manually run 'git submodule foreach git reset --hard HEAD' on repo root: {targetPath} after each build.");
+                                executionContext.Debug($"'git submodule foreach --recursive \"git reset --hard HEAD\"' failed with exit code {exitCode_submodulereset}\nFor futher investigation, manually run 'git submodule foreach --recursive \"git reset --hard HEAD\"' on repo root: {targetPath} after each build.");
                                 softCleanSucceed = false;
                             }
                         }
@@ -741,13 +794,33 @@ namespace Agent.Plugins.Repository
                 }
             }
 
-            // If this is a build for a pull request, then include
-            // the pull request reference as an additional ref.
             List<string> additionalFetchSpecs = new List<string>();
+            string refFetchedByCommit = null;
+
             if (IsPullRequest(sourceBranch))
             {
-                additionalFetchSpecs.Add("+refs/heads/*:refs/remotes/origin/*");
-                additionalFetchSpecs.Add(StringUtil.Format("+{0}:{1}", sourceBranch, GetRemoteRefName(sourceBranch)));
+                // Build a 'fetch-by-commit' refspec iff the server allows us to do so in the shallow fetch scenario
+                // Otherwise, fall back to fetch all branches and pull request ref
+                if (fetchDepth > 0 && fetchByCommit && !string.IsNullOrEmpty(sourceVersion))
+                {
+                    refFetchedByCommit = $"{_remoteRefsPrefix}{sourceVersion}";
+                    additionalFetchSpecs.Add($"+{sourceVersion}:{refFetchedByCommit}");
+                }
+                else
+                {
+                    additionalFetchSpecs.Add("+refs/heads/*:refs/remotes/origin/*");
+                    additionalFetchSpecs.Add($"+{sourceBranch}:{GetRemoteRefName(sourceBranch)}");
+                }
+            }
+            else
+            {
+                // Build a refspec iff the server allows us to fetch a specific commit in the shallow fetch scenario
+                // Otherwise, use the default fetch behavior (i.e. with no refspecs)
+                if (fetchDepth > 0 && fetchByCommit && !string.IsNullOrEmpty(sourceVersion))
+                {
+                    refFetchedByCommit = $"{_remoteRefsPrefix}{sourceVersion}";
+                    additionalFetchSpecs.Add($"+{sourceVersion}:{refFetchedByCommit}");
+                }
             }
 
             int exitCode_fetch = await gitCommandManager.GitFetch(executionContext, targetPath, "origin", fetchDepth, additionalFetchSpecs, string.Join(" ", additionalFetchArgs), cancellationToken);
@@ -764,7 +837,12 @@ namespace Agent.Plugins.Repository
             cancellationToken.ThrowIfCancellationRequested();
             executionContext.Progress(80, "Starting checkout...");
             string sourcesToBuild;
-            if (IsPullRequest(sourceBranch) || string.IsNullOrEmpty(sourceVersion))
+
+            if (refFetchedByCommit != null)
+            {
+                sourcesToBuild = refFetchedByCommit;
+            }
+            else if (IsPullRequest(sourceBranch) || string.IsNullOrEmpty(sourceVersion))
             {
                 sourcesToBuild = GetRemoteRefName(sourceBranch);
             }

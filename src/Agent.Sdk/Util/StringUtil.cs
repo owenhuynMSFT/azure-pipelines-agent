@@ -31,6 +31,11 @@ namespace Microsoft.VisualStudio.Services.Agent.Util
 #endif
         }
 
+        public static string SubstringPrefix(string value, int count)
+        {
+            return value?.Substring(0, Math.Min(value.Length, count));
+        }
+
         public static T ConvertFromJson<T>(string value)
         {
             return JsonConvert.DeserializeObject<T>(value, s_serializerSettings.Value);
@@ -64,9 +69,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Util
             }
         }
 
-        public static string ConvertToJson(object obj)
+        public static string ConvertToJson(object obj, Formatting formatting = Formatting.Indented)
         {
-            return JsonConvert.SerializeObject(obj, Formatting.Indented, s_serializerSettings.Value);
+            return JsonConvert.SerializeObject(obj, formatting, s_serializerSettings.Value);
         }
 
         public static void EnsureRegisterEncodings()

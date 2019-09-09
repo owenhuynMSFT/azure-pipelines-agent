@@ -55,6 +55,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests
             }
 
             var traceListener = new HostTraceListener(TraceFileName);
+            traceListener.DisableConsoleReporting = true;
             _secretMasker = new SecretMasker();
             _secretMasker.AddValueEncoder(ValueEncoders.JsonStringEscape);
             _secretMasker.AddValueEncoder(ValueEncoders.UriDataEscape);
@@ -200,6 +201,12 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests
                     path = Path.Combine(
                         GetDirectory(WellKnownDirectory.Externals),
                         Constants.Path.ServerOMDirectory);
+                    break;
+
+                case WellKnownDirectory.Tf:
+                    path = Path.Combine(
+                        GetDirectory(WellKnownDirectory.Externals),
+                        Constants.Path.TfDirectory);
                     break;
 
                 case WellKnownDirectory.Tee:

@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.TeamFoundation.DistributedTask.WebApi;
 using Microsoft.VisualStudio.Services.Agent.Util;
 using Microsoft.VisualStudio.Services.Common;
+using Microsoft.VisualStudio.Services.Content.Common.Telemetry;
 using Microsoft.VisualStudio.Services.WebApi;
 using Newtonsoft.Json;
 using Pipelines = Microsoft.TeamFoundation.DistributedTask.Pipelines;
@@ -18,7 +19,6 @@ namespace Agent.Sdk
     public interface IAgentTaskPlugin
     {
         Guid Id { get; }
-        string Version { get; }
         string Stage { get; }
         Task RunAsync(AgentTaskPluginExecutionContext executionContext, CancellationToken token);
     }
@@ -27,9 +27,15 @@ namespace Agent.Sdk
     {
         private VssConnection _connection;
         private readonly object _stdoutLock = new object();
+        private readonly ITraceWriter _trace; // for unit tests
 
         public AgentTaskPluginExecutionContext()
+            : this(null)
+        { }
+
+        public AgentTaskPluginExecutionContext(ITraceWriter trace)
         {
+            _trace = trace;
             this.Endpoints = new List<ServiceEndpoint>();
             this.Inputs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             this.Repositories = new List<Pipelines.RepositoryResource>();
@@ -157,11 +163,27 @@ namespace Agent.Sdk
             Output($"##vso[task.logissue type=warning;]{Escape(message)}");
         }
 
+        public void PublishTelemetry(string area, string feature, Dictionary<string, string> properties)
+        {
+            string propertiesAsJson = StringUtil.ConvertToJson(properties, Formatting.None);
+            Output($"##vso[telemetry.publish area={area};feature={feature}]{Escape(propertiesAsJson)}");
+        }
+
+        public void PublishTelemetry(string area, string feature, TelemetryRecord record) 
+            => PublishTelemetry(area, feature, record.GetAssignedProperties());
+
         public void Output(string message)
         {
             lock (_stdoutLock)
             {
-                Console.WriteLine(message);
+                if (_trace == null)
+                {
+                    Console.WriteLine(message);
+                }
+                else
+                {
+                    _trace.Info(message);
+                }
             }
         }
 
@@ -201,6 +223,11 @@ namespace Agent.Sdk
         public void Command(string command)
         {
             Output($"##[command]{Escape(command)}");
+        }
+
+        public void UpdateRepositoryPath(string alias, string path)
+        {
+            Output($"##vso[plugininternal.updaterepositorypath alias={Escape(alias)};]{path}");
         }
 
         public AgentCertificateSettings GetCertConfiguration()

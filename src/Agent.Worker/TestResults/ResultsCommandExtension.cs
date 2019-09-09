@@ -8,6 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.Services.WebApi;
 using Microsoft.TeamFoundation.DistributedTask.WebApi;
+using Microsoft.VisualStudio.Services.Agent.Worker.Telemetry;
+using Microsoft.VisualStudio.Services.WebPlatform;
 
 namespace Microsoft.VisualStudio.Services.Agent.Worker.TestResults
 {
@@ -30,6 +32,11 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.TestResults
         private readonly object _sync = new object();
         private string _testRunSystem;
         private const string _testRunSystemCustomFieldName = "TestRunSystem";
+
+        //telemetry parameter
+        private const string _telemetryFeature = "PublishTestResultsCommand";
+        private const string _telemetryArea = "TestResults";
+        private Dictionary<string, object> _telemetryProperties;
 
         public Type ExtensionType => typeof(IWorkerCommandExtension);
 
@@ -56,12 +63,23 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.TestResults
             ArgUtil.NotNull(context, nameof(context));
             _executionContext = context;
 
+            _telemetryProperties = new Dictionary<string, object>();
+            PopulateTelemetryData();
+
             LoadPublishTestResultsInputs(context, eventProperties, data);
 
             string teamProject = context.Variables.System_TeamProject;
             string owner = context.Variables.Build_RequestedFor;
             string buildUri = context.Variables.Build_BuildUri;
             int buildId = context.Variables.Build_BuildId ?? 0;
+            string pullRequestTargetBranchName = context.Variables.System_PullRequest_TargetBranch;
+            string stageName = context.Variables.System_StageName;
+            string phaseName = context.Variables.System_PhaseName;
+            string jobName = context.Variables.System_JobName;
+            int stageAttempt = context.Variables.System_StageAttempt ?? 0;
+            int phaseAttempt = context.Variables.System_PhaseAttempt ?? 0;
+            int jobAttempt = context.Variables.System_JobAttempt ?? 0;
+
 
             //Temporary fix to support publish in RM scenarios where there might not be a valid Build ID associated.
             //TODO: Make a cleaner fix after TCM User Story 401703 is completed.
@@ -82,22 +100,20 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.TestResults
 
             IResultReader resultReader = GetTestResultReader(_testRunner);
             TestRunContext runContext = new TestRunContext(owner, _platform, _configuration, buildId, buildUri, releaseUri, releaseEnvironmentUri);
-            VssConnection connection = WorkerUtilities.GetVssConnection(_executionContext);
+            runContext.StageName = stageName;
+            runContext.StageAttempt = stageAttempt;
+            runContext.PhaseName = phaseName;
+            runContext.PhaseAttempt = phaseAttempt;
+            runContext.JobName = jobName;
+            runContext.JobAttempt = jobAttempt;
 
-            var publisher = HostContext.GetService<ITestRunPublisher>();
-            publisher.InitializePublisher(context, connection, teamProject, resultReader);
+            runContext.PullRequestTargetBranchName = pullRequestTargetBranchName;
+            
+            VssConnection connection = WorkerUtilities.GetVssConnection(_executionContext);
 
             var commandContext = HostContext.CreateService<IAsyncCommandContext>();
             commandContext.InitializeCommandContext(context, StringUtil.Loc("PublishTestResults"));
-
-            if (_mergeResults)
-            {
-                commandContext.Task = PublishAllTestResultsToSingleTestRunAsync(_testResultFiles, publisher, buildId, runContext, resultReader.Name, context.CancellationToken);
-            }
-            else
-            {
-                commandContext.Task = PublishToNewTestRunPerTestResultFileAsync(_testResultFiles, publisher, runContext, resultReader.Name, PublishBatchSize, context.CancellationToken);
-            }
+            commandContext.Task = PublishTestResultsAsync(connection, teamProject, buildId, runContext, resultReader); 
             _executionContext.AsyncCommands.Add(commandContext);
 
             if(_isTestRunOutcomeFailed)
@@ -105,6 +121,23 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.TestResults
                 _executionContext.Result = TaskResult.Failed;
                 _executionContext.Error(StringUtil.Loc("FailedTestsInResults"));
             }
+        }
+
+        private async Task PublishTestResultsAsync(VssConnection connection, String teamProject, int buildId, TestRunContext runContext, IResultReader resultReader)
+        {
+            var publisher = HostContext.GetService<ITestRunPublisher>();
+            publisher.InitializePublisher(_executionContext, connection, teamProject, resultReader);
+
+            if (_mergeResults)
+            {
+                await PublishAllTestResultsToSingleTestRunAsync(_testResultFiles, publisher, buildId, runContext, resultReader.Name, _executionContext.CancellationToken);
+            }
+            else
+            {
+                await PublishToNewTestRunPerTestResultFileAsync(_testResultFiles, publisher, runContext, resultReader.Name, PublishBatchSize, _executionContext.CancellationToken);
+            }
+
+            await PublishEventsAsync(connection);
         }
 
         /// <summary>
@@ -133,50 +166,57 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.TestResults
 
                     if(_failTaskOnFailedTests)
                     {
-                        _isTestRunOutcomeFailed = GetTestRunOutcome(resultFileRunData);
+                        _isTestRunOutcomeFailed = _isTestRunOutcomeFailed || GetTestRunOutcome(resultFileRunData);
                     }
 
-                    if (resultFileRunData != null && resultFileRunData.Results != null && resultFileRunData.Results.Length > 0)
+                    if (resultFileRunData != null)
                     {
-                        try
+                        if (resultFileRunData.Results != null && resultFileRunData.Results.Length > 0)
                         {
-                            if (string.IsNullOrEmpty(resultFileRunData.StartDate) || string.IsNullOrEmpty(resultFileRunData.CompleteDate))
+                            try
                             {
+                                if (string.IsNullOrEmpty(resultFileRunData.StartDate) || string.IsNullOrEmpty(resultFileRunData.CompleteDate))
+                                {
+                                    dateFormatError = true;
+                                }
+
+                                //As per discussion with Manoj(refer bug 565487): Test Run duration time should be minimum Start Time to maximum Completed Time when merging
+                                if (!string.IsNullOrEmpty(resultFileRunData.StartDate))
+                                {
+                                    DateTime startDate = DateTime.Parse(resultFileRunData.StartDate, null, DateTimeStyles.RoundtripKind);
+                                    minStartDate = minStartDate > startDate ? startDate : minStartDate;
+
+                                    if (!string.IsNullOrEmpty(resultFileRunData.CompleteDate))
+                                    {
+                                        DateTime endDate = DateTime.Parse(resultFileRunData.CompleteDate, null, DateTimeStyles.RoundtripKind);
+                                        maxCompleteDate = maxCompleteDate < endDate ? endDate : maxCompleteDate;
+                                    }
+                                }
+                            }
+                            catch (FormatException)
+                            {
+                                _executionContext.Warning(StringUtil.Loc("InvalidDateFormat", resultFile, resultFileRunData.StartDate, resultFileRunData.CompleteDate));
                                 dateFormatError = true;
                             }
 
-                            //As per discussion with Manoj(refer bug 565487): Test Run duration time should be minimum Start Time to maximum Completed Time when merging
-                            if (!string.IsNullOrEmpty(resultFileRunData.StartDate))
+                            //continue to calculate duration as a fallback for case: if there is issue with format or dates are null or empty
+                            foreach (TestCaseResultData tcResult in resultFileRunData.Results)
                             {
-                                DateTime startDate = DateTime.Parse(resultFileRunData.StartDate, null, DateTimeStyles.RoundtripKind);
-                                minStartDate = minStartDate > startDate ? startDate : minStartDate;
+                                int durationInMs = Convert.ToInt32(tcResult.DurationInMs);
+                                totalTestCaseDuration = totalTestCaseDuration.Add(TimeSpan.FromMilliseconds(durationInMs));
+                            }
 
-                                if (!string.IsNullOrEmpty(resultFileRunData.CompleteDate))
-                                {
-                                    DateTime endDate = DateTime.Parse(resultFileRunData.CompleteDate, null, DateTimeStyles.RoundtripKind);
-                                    maxCompleteDate = maxCompleteDate < endDate ? endDate : maxCompleteDate;
-                                }
+                            runResults.AddRange(resultFileRunData.Results);
+
+                            //run attachments
+                            if (resultFileRunData.Attachments != null)
+                            {
+                                runAttachments.AddRange(resultFileRunData.Attachments);
                             }
                         }
-                        catch (FormatException)
+                        else
                         {
-                            _executionContext.Warning(StringUtil.Loc("InvalidDateFormat", resultFile, resultFileRunData.StartDate, resultFileRunData.CompleteDate));
-                            dateFormatError = true;
-                        }
-
-                        //continue to calculate duration as a fallback for case: if there is issue with format or dates are null or empty
-                        foreach (TestCaseResultData tcResult in resultFileRunData.Results)
-                        {
-                            int durationInMs = Convert.ToInt32(tcResult.DurationInMs);
-                            totalTestCaseDuration = totalTestCaseDuration.Add(TimeSpan.FromMilliseconds(durationInMs));
-                        }
-
-                        runResults.AddRange(resultFileRunData.Results);
-
-                        //run attachments
-                        if (resultFileRunData.Attachments != null)
-                        {
-                            runAttachments.AddRange(resultFileRunData.Attachments);
+                            _executionContext.Output(StringUtil.Loc("NoResultFound", resultFile));
                         }
                     }
                     else
@@ -214,9 +254,10 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.TestResults
                         releaseUri: runContext != null ? runContext.ReleaseUri : null,
                         releaseEnvironmentUri: runContext != null ? runContext.ReleaseEnvironmentUri : null
                     );
-
+                    testRunData.PipelineReference = GetTestPipelineReference(runContext);
                     testRunData.Attachments = runAttachments.ToArray();
                     testRunData.AddCustomField(_testRunSystemCustomFieldName, _testRunSystem);
+                    AddTargetBranchInfoToRunCreateModel(testRunData, runContext.PullRequestTargetBranchName);
 
                     TestRun testRun = await publisher.StartTestRunAsync(testRunData, _executionContext.CancellationToken);
                     await publisher.AddResultsAsync(testRun, runResults.ToArray(), _executionContext.CancellationToken);
@@ -264,20 +305,28 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.TestResults
 
                         _executionContext.Debug(StringUtil.Format("Reading test results from file '{0}'", resultFile));
                         TestRunData testRunData = publisher.ReadResultsFromFile(runContext, resultFile, runName);
-
+                        testRunData.PipelineReference = GetTestPipelineReference(runContext);
                         if(_failTaskOnFailedTests)
                         {
-                            _isTestRunOutcomeFailed = GetTestRunOutcome(testRunData);
+                            _isTestRunOutcomeFailed = _isTestRunOutcomeFailed || GetTestRunOutcome(testRunData);
                         }
 
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        if (testRunData != null && testRunData.Results != null && testRunData.Results.Length > 0)
+                        if (testRunData != null)
                         {
-                            testRunData.AddCustomField(_testRunSystemCustomFieldName, _testRunSystem);
-                            TestRun testRun = await publisher.StartTestRunAsync(testRunData, _executionContext.CancellationToken);
-                            await publisher.AddResultsAsync(testRun, testRunData.Results, _executionContext.CancellationToken);
-                            await publisher.EndTestRunAsync(testRunData, testRun.Id, cancellationToken: _executionContext.CancellationToken);
+                            if (testRunData.Results != null && testRunData.Results.Length > 0)
+                            {
+                                testRunData.AddCustomField(_testRunSystemCustomFieldName, _testRunSystem);
+                                AddTargetBranchInfoToRunCreateModel(testRunData, runContext.PullRequestTargetBranchName);
+                                TestRun testRun = await publisher.StartTestRunAsync(testRunData, _executionContext.CancellationToken);
+                                await publisher.AddResultsAsync(testRun, testRunData.Results, _executionContext.CancellationToken);
+                                await publisher.EndTestRunAsync(testRunData, testRun.Id, cancellationToken: _executionContext.CancellationToken);
+                            }
+                            else
+                            {
+                                _executionContext.Output(StringUtil.Loc("NoResultFound", resultFile));
+                            }
                         }
                         else
                         {
@@ -292,6 +341,22 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.TestResults
                 //Do not fail the task.
                 LogPublishTestResultsFailureWarning(ex);
             }
+        }
+
+        private PipelineReference GetTestPipelineReference(TestRunContext runContext)
+        {
+            PipelineReference pipelineReference = null;
+            if(runContext != null)
+            {
+                pipelineReference = new PipelineReference()
+                {
+                    PipelineId = runContext.BuildId,
+                    StageReference = new StageReference() { StageName = runContext.StageName, Attempt = runContext.StageAttempt },
+                    PhaseReference = new PhaseReference() { PhaseName = runContext.PhaseName, Attempt = runContext.PhaseAttempt },
+                    JobReference = new JobReference() { JobName = runContext.JobName, Attempt = runContext.JobAttempt }
+                };
+            }
+            return pipelineReference;
         }
 
         private string GetRunTitle()
@@ -432,6 +497,62 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.TestResults
                 message += ex.InnerException.Message;
             }
             _executionContext.Warning(StringUtil.Loc("FailedToPublishTestResults", message));
+        }
+
+        // Adds Target Branch Name info to run create model
+        private void AddTargetBranchInfoToRunCreateModel(RunCreateModel runCreateModel, string pullRequestTargetBranchName)
+        {
+            if (string.IsNullOrEmpty(pullRequestTargetBranchName) ||
+                !string.IsNullOrEmpty(runCreateModel.BuildReference?.TargetBranchName))
+            {
+                return;
+            }
+            
+            if (runCreateModel.BuildReference == null)
+            {
+                runCreateModel.BuildReference = new BuildConfiguration() { TargetBranchName = pullRequestTargetBranchName };
+            }
+            else
+            {
+                runCreateModel.BuildReference.TargetBranchName = pullRequestTargetBranchName;
+            }
+        }
+
+        private async Task PublishEventsAsync(VssConnection connection)
+        {
+            try
+            {
+                CustomerIntelligenceEvent ciEvent = new CustomerIntelligenceEvent()
+                {
+                    Area = _telemetryArea,
+                    Feature = _telemetryFeature,
+                    Properties = _telemetryProperties
+                };
+
+                var ciService = HostContext.GetService<ICustomerIntelligenceServer>();
+                ciService.Initialize(connection);
+                await ciService.PublishEventsAsync(new CustomerIntelligenceEvent[] { ciEvent });
+            }
+            catch(Exception ex)
+            {
+                _executionContext.Debug(StringUtil.Loc("TelemetryCommandFailed", ex.Message));
+            }
+        }
+
+        private void PopulateTelemetryData()
+        {
+            _telemetryProperties.Add("ExecutionId", _executionContext.Id);
+            _telemetryProperties.Add("BuildId", _executionContext.Variables.Build_BuildId);
+            _telemetryProperties.Add("BuildUri", _executionContext.Variables.Build_BuildUri);
+            _telemetryProperties.Add("Attempt", _executionContext.Variables.System_JobAttempt);
+            _telemetryProperties.Add("ProjectId", _executionContext.Variables.System_TeamProjectId);
+            _telemetryProperties.Add("ProjectName", _executionContext.Variables.System_TeamProject);
+
+            if (!string.IsNullOrWhiteSpace(_executionContext.Variables.Release_ReleaseUri))
+            {
+                _telemetryProperties.Add("ReleaseUri", _executionContext.Variables.Release_ReleaseUri);
+                _telemetryProperties.Add("ReleaseId", _executionContext.Variables.Release_ReleaseId);
+            }
         }
     }
 

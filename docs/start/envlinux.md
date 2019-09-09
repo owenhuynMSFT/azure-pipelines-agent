@@ -4,22 +4,26 @@
 
 ## Supported Distributions and Versions
 
+We support the following OSes, a subset of [the ones .NET Core 2.1 supports](https://github.com/dotnet/core/blob/master/release-notes/2.1/2.1-supported-os.md):
+
 x64
-  - Red Hat Enterprise Linux 7
-  - CentOS 7
+  - Red Hat Enterprise Linux 6 (see note 1), 7
+  - CentOS 6 (see note 1), 7
   - Oracle Linux 7
-  - Fedora 28, 27
-  - Debian 9, 8.7 or later versions
-  - Ubuntu 18.04, Ubuntu 16.04, Ubuntu 14.04
+  - Fedora 30, 29
+  - Debian 9
+  - Ubuntu 18.04, Ubuntu 16.04
   - Linux Mint 18, 17
   - openSUSE 42.3 or later versions
   - SUSE Enterprise Linux (SLES) 12 SP2 or later versions
 
-ARM32
-  - Debian 9 or later versions
-  - Ubuntu 18.04 or later versions
-> Note: ARM instruction set [ARMv7](https://en.wikipedia.org/wiki/List_of_ARM_microarchitectures) or above is required, you can get your device's information by executing `uname -a`
+ARM32 (see note 2)
+  - Debian 9
+  - Ubuntu 18.04
 
+> Notes:
+> 1. Red Hat Enterprise Linux 6 and CentOS 6 require installing the specialized "rhel.6-x64" agent package
+> 2. ARM instruction set [ARMv7](https://en.wikipedia.org/wiki/List_of_ARM_microarchitectures) or above is required, you can get your device's information by executing `uname -a`
 
 ## Install .Net Core 2.x Linux Dependencies
 
@@ -38,7 +42,7 @@ The `installdependencies.sh` script should install all required dependencies on 
 
 ## Git
 
-If you use git, git >= 2.9.0 is a pre-requisite for Linux agents.
+If you use git, git >= 2.9.0 is a pre-requisite for Linux agents. To install an up-to-date version, please follow the instructions on [the Git website](https://git-scm.com/download/linux).
 
 ## Optionally Java if using TFVC
 
