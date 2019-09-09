@@ -54,6 +54,7 @@ namespace Agent.Plugins.PipelineArtifact
                 propertiesDictionary.Add(PipelineArtifactConstants.RootId, result.RootId.ValueString);
                 propertiesDictionary.Add(PipelineArtifactConstants.ProofNodes, StringUtil.ConvertToJson(result.ProofNodes.ToArray()));
                 propertiesDictionary.Add(PipelineArtifactConstants.ArtifactSize, result.ContentSize.ToString());
+                context.Output($"Preparing to associate pipeline artifact with name: {name}");
                 var artifact = await buildHelper.AssociateArtifactAsync(projectId, 
                                                                         pipelineId, 
                                                                         name, 
